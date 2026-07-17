@@ -1,0 +1,27 @@
+{
+  "name": "trenchpulse",
+  "version": "1.0.0",
+  "description": "AI-powered memecoin trading bot",
+  "main": "bot/src/index.js",
+  "scripts": {
+    "start": "node bot/src/index.js",
+    "dev": "node bot/src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "trading",
+    "solana",
+    "memecoin",
+    "bot",
+    "crypto"
+  ],
+  "author": "TrenchPulse",
+  "license": "ISC",
+  "dependencies": {
+    "@solana/spl-token": "^0.3.8",
+    "@solana/web3.js": "^1.87.6",
+    "axios": "^1.18.1",
+    "dotenv": "^16.6.1",
+    "winston": "^3.11.0"
+  }
+}
