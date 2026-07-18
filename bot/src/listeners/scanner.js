@@ -183,7 +183,31 @@ class Scanner {
       devRecord = registerToken(devWallet, address, profile.description || 'Unknown');
     }
 
-    const score = this.calculateSignalScore(pairData, security, devReputation);
+    // Price momentum check
+const priceChange5m = pairData?.priceChange?.m5 || 0;
+const priceChange1h = pairData?.priceChange?.h1 || 0;
+
+// Block negative 5min price action
+if (priceChange5m < 0) {
+  console.log('Rejected: negative 5min price action');
+  return null;
+}
+
+// Block if sell volume beats buy volume
+const buyVolume = pairData?.volume?.buyVolume || 0;
+const sellVolume = pairData?.volume?.sellVolume || 0;
+if (sellVolume > buyVolume && buyVolume > 0) {
+  console.log('Rejected: sell volume dominates');
+  return null;
+}
+
+// Block if 1h price is deeply negative
+if (priceChange1h < -15) {
+  console.log('Rejected: down more than 15% in 1 hour');
+  return null;
+}
+
+const score = this.calculateSignalScore(pairData, security, devReputation);
 
     // Track for outcome learning
     this.trackedTokens.push({
