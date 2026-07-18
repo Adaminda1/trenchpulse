@@ -23,7 +23,7 @@ const FILTERS = {
 class Scanner {
   constructor() {
     this.isRunning = false;
-    this.scanInterval = 120000;
+    this.scanInterval = 300000; // 5 minutes
     this.seenTokens = new Set();
     this.trackedTokens = [];
     this.executor = new AutoExecutor();
