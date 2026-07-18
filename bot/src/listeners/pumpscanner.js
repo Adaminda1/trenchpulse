@@ -1,5 +1,6 @@
 const WebSocket = require('ws');
 const { sendTelegramAlert } = require('../managers/trademanager');
+const { analyzeToken } = require('../services/aianalysis');
 const {
   getDevRecord,
   registerToken,
@@ -39,9 +40,7 @@ class PumpScanner {
   isValidName(name) {
     if (!name) return false;
     if (name.length < FILTERS.MIN_NAME_LENGTH) return false;
-    // Block names that are purely numbers
     if (/^\d+$/.test(name)) return false;
-    // Block names with too many special characters
     const specialChars = name.replace(/[a-zA-Z0-9\s]/g, '').length;
     if (specialChars > 3) return false;
     return true;
@@ -59,49 +58,41 @@ class PumpScanner {
       const solAmount = parseFloat(data.solAmount || 0);
       const marketCapSol = parseFloat(data.marketCapSol || 0);
 
-      // Block suspicious keywords
       if (this.containsBlockedKeyword(name) ||
           this.containsBlockedKeyword(symbol)) {
         console.log('PumpScanner blocked keyword: ' + name);
         return;
       }
 
-      // Validate name quality
       if (!this.isValidName(name)) {
         console.log('PumpScanner blocked invalid name: ' + name);
         return;
       }
 
-      // Minimum initial buy — serious launchers spend real SOL
       if (solAmount < FILTERS.MIN_SOL_AMOUNT) {
         console.log('PumpScanner blocked low buy: ' + solAmount + ' SOL');
         return;
       }
 
-      // Minimum market cap — filters zero conviction launches
       if (marketCapSol < FILTERS.MIN_MARKET_CAP_SOL) {
         console.log('PumpScanner blocked low mcap: ' + marketCapSol + ' SOL');
         return;
       }
 
-      // Require image — no image = spam launch
       if (FILTERS.REQUIRE_IMAGE && !data.image) {
         console.log('PumpScanner blocked: no image');
         return;
       }
 
-      // Dev reputation check
       const devRecord = getDevRecord(devWallet);
       const devReputation = devRecord?.reputation || 'NEW';
 
-      // Block blacklisted devs immediately
       if (devReputation === 'BLACKLISTED') {
         console.log('PumpScanner blocked blacklisted dev: ' +
           devWallet.slice(0, 8));
         return;
       }
 
-      // Register token for outcome tracking
       if (devWallet !== 'unknown') {
         registerToken(devWallet, address, name);
       }
@@ -113,10 +104,20 @@ class PumpScanner {
           ' | Rugs: ' + devRecord.rugCount
         : 'First time seen';
 
-      // Conviction rating based on initial buy
       let conviction = 'LOW';
       if (solAmount >= 10) conviction = 'HIGH';
       else if (solAmount >= 3) conviction = 'MEDIUM';
+
+      // Get AI analysis
+      const aiAnalysis = await analyzeToken({
+        name,
+        symbol,
+        solAmount: solAmount.toFixed(4),
+        marketCapSol: marketCapSol.toFixed(2),
+        conviction,
+        devReputation,
+        devStats
+      }, 'pump');
 
       const message =
         'PUMP.FUN EARLY LAUNCH\n' +
@@ -131,6 +132,7 @@ class PumpScanner {
         'DEV REPUTATION\n' +
         devLabel + '\n' +
         devStats + '\n\n' +
+        (aiAnalysis ? 'AI ANALYSIS\n' + aiAnalysis + '\n\n' : '') +
         'Pump.fun: https://pump.fun/' + address + '\n\n' +
         'TrenchPulse Early Scanner\n' +
         'DYOR - Caught at launch';

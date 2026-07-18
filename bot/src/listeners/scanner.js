@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { sendTelegramAlert } = require('../managers/trademanager');
+const { analyzeToken } = require('../services/aianalysis');
 const {
   getDevRecord,
   registerToken,
@@ -14,6 +15,7 @@ const FILTERS = {
   MAX_TOKEN_AGE_HOURS: 2,
   REQUIRED_SOCIALS: true,
   SOLANA_ONLY: true,
+  MIN_SCORE: 60
 };
 
 class Scanner {
@@ -130,7 +132,6 @@ class Scanner {
       if (security.freezable !== '1') score += 5;
     }
 
-    // Dev reputation boost
     const reputationBoost = getReputationBoost(devReputation);
     score += reputationBoost;
 
@@ -161,55 +162,51 @@ class Scanner {
 
     if (FILTERS.REQUIRED_SOCIALS && !this.hasSocials(profile, pairData)) return null;
 
+    // Price momentum check
+    const priceChange5m = pairData?.priceChange?.m5 || 0;
+    const priceChange1h = pairData?.priceChange?.h1 || 0;
+
+    if (priceChange5m < 0) {
+      console.log('Rejected: negative 5min price action');
+      return null;
+    }
+
+    if (priceChange1h < -15) {
+      console.log('Rejected: down more than 15% in 1 hour');
+      return null;
+    }
+
+    const buyVolume = pairData?.volume?.buyVolume || 0;
+    const sellVolume = pairData?.volume?.sellVolume || 0;
+    if (sellVolume > buyVolume && buyVolume > 0) {
+      console.log('Rejected: sell volume dominates');
+      return null;
+    }
+
     const security = await this.fetchSecurityData(address);
     const securityFlags = this.checkSecurityFlags(security);
 
     if (securityFlags.includes('Honeypot detected')) return null;
     if (securityFlags.includes('Token blacklisted')) return null;
 
-    // Dev reputation check
     const devWallet = security?.creator_address || 'unknown';
     let devRecord = getDevRecord(devWallet);
     const devReputation = devRecord?.reputation || 'NEW';
 
-    // Block blacklisted devs immediately
     if (devReputation === 'BLACKLISTED') {
-      console.log('Blocked blacklisted dev: ' + devWallet.slice(0, 8) + '...');
+      console.log('Blocked blacklisted dev: ' + devWallet.slice(0, 8));
       return null;
     }
 
-    // Register dev and token for future tracking
     if (devWallet !== 'unknown') {
-      devRecord = registerToken(devWallet, address, profile.description || 'Unknown');
+      devRecord = registerToken(devWallet, address,
+        profile.description || 'Unknown');
     }
 
-    // Price momentum check
-const priceChange5m = pairData?.priceChange?.m5 || 0;
-const priceChange1h = pairData?.priceChange?.h1 || 0;
+    const score = this.calculateSignalScore(pairData, security, devReputation);
 
-// Block negative 5min price action
-if (priceChange5m < 0) {
-  console.log('Rejected: negative 5min price action');
-  return null;
-}
+    if (score < FILTERS.MIN_SCORE) return null;
 
-// Block if sell volume beats buy volume
-const buyVolume = pairData?.volume?.buyVolume || 0;
-const sellVolume = pairData?.volume?.sellVolume || 0;
-if (sellVolume > buyVolume && buyVolume > 0) {
-  console.log('Rejected: sell volume dominates');
-  return null;
-}
-
-// Block if 1h price is deeply negative
-if (priceChange1h < -15) {
-  console.log('Rejected: down more than 15% in 1 hour');
-  return null;
-}
-
-const score = this.calculateSignalScore(pairData, security, devReputation);
-
-    // Track for outcome learning
     this.trackedTokens.push({
       address,
       devWallet,
@@ -238,11 +235,10 @@ const score = this.calculateSignalScore(pairData, security, devReputation);
     for (const tracked of this.trackedTokens) {
       const ageHours = (now - tracked.trackedAt) / (1000 * 60 * 60);
       if (ageHours < 24) continue;
-
       try {
         const pairData = await this.fetchTokenData(tracked.address);
-        if (!pairData || !tracked.devWallet || tracked.devWallet === 'unknown') continue;
-
+        if (!pairData || !tracked.devWallet ||
+            tracked.devWallet === 'unknown') continue;
         const currentPrice = parseFloat(pairData.priceUsd || 0);
         await updateTokenOutcome(
           tracked.devWallet,
@@ -254,14 +250,12 @@ const score = this.calculateSignalScore(pairData, security, devReputation);
         console.error('Outcome check error:', error.message);
       }
     }
-
-    // Clean up old tracked tokens (over 48 hours)
     this.trackedTokens = this.trackedTokens.filter(t =>
       (now - t.trackedAt) < 48 * 60 * 60 * 1000
     );
   }
 
-  formatAlert(token) {
+  formatAlert(token, aiAnalysis) {
     const txns = token.pairData?.txns?.h1 || {};
     const buys = txns.buys || 0;
     const sells = txns.sells || 0;
@@ -301,6 +295,7 @@ const score = this.calculateSignalScore(pairData, security, devReputation);
       'DEV REPUTATION\n' +
       devLabel + '\n' +
       devStats + '\n\n' +
+      (aiAnalysis ? 'AI ANALYSIS\n' + aiAnalysis + '\n\n' : '') +
       'Chart: ' + (token.pairData?.url || 'N/A') + '\n\n' +
       'TrenchPulse Scanner'
     );
@@ -317,9 +312,8 @@ const score = this.calculateSignalScore(pairData, security, devReputation);
         if (!address || this.seenTokens.has(address)) continue;
         this.seenTokens.add(address);
 
-      const token = await this.analyzeToken(profile);
-      if (!token) continue;
-      if (token.score < 60) continue;
+        const token = await this.analyzeToken(profile);
+        if (!token) continue;
 
         console.log(
           'Signal: ' + token.name +
@@ -327,12 +321,29 @@ const score = this.calculateSignalScore(pairData, security, devReputation);
           ' | Dev: ' + token.devReputation
         );
 
-        const message = this.formatAlert(token);
+        // Get AI analysis
+        const aiAnalysis = await analyzeToken({
+          name: token.name,
+          symbol: token.symbol,
+          score: token.score,
+          rating: token.rating,
+          price: parseFloat(token.pairData?.priceUsd || 0).toFixed(8),
+          priceChange: token.pairData?.priceChange?.h1 || 0,
+          liquidity: token.liquidity.toLocaleString(),
+          marketCap: token.marketCap.toLocaleString(),
+          volume: (token.pairData?.volume?.h1 || 0).toLocaleString(),
+          buys: token.pairData?.txns?.h1?.buys || 0,
+          sells: token.pairData?.txns?.h1?.sells || 0,
+          securityStatus: token.securityFlags.length === 0
+            ? 'CLEAN' : token.securityFlags.join(', '),
+          devReputation: token.devReputation
+        }, 'dexscreener');
+
+        const message = this.formatAlert(token, aiAnalysis);
         await sendTelegramAlert(message);
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
-      // Check outcomes of previously tracked tokens
       await this.checkTrackedOutcomes();
 
     } catch (error) {
