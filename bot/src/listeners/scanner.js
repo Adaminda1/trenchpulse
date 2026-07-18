@@ -19,7 +19,7 @@ const FILTERS = {
 class Scanner {
   constructor() {
     this.isRunning = false;
-    this.scanInterval = 60000;
+    this.scanInterval = 120000;
     this.seenTokens = new Set();
     this.trackedTokens = [];
     console.log('TrenchPulse Scanner initialized');
