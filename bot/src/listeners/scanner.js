@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { sendTelegramAlert } = require('../managers/trademanager');
 const { analyzeToken } = require('../services/aianalysis');
+const { AutoExecutor } = require('../executors/autoExecutor');
 const {
   getDevRecord,
   registerToken,
@@ -15,7 +16,8 @@ const FILTERS = {
   MAX_TOKEN_AGE_HOURS: 2,
   REQUIRED_SOCIALS: true,
   SOLANA_ONLY: true,
-  MIN_SCORE: 60
+  MIN_SCORE: 60,
+  MAX_TOP_HOLDER_PERCENT: 20
 };
 
 class Scanner {
@@ -24,6 +26,7 @@ class Scanner {
     this.scanInterval = 120000;
     this.seenTokens = new Set();
     this.trackedTokens = [];
+    this.executor = new AutoExecutor();
     console.log('TrenchPulse Scanner initialized');
   }
 
@@ -66,6 +69,35 @@ class Scanner {
       return response.data?.result?.[address.toLowerCase()] || null;
     } catch (error) {
       console.error('Fetch security error:', error.message);
+      return null;
+    }
+  }
+
+  async fetchHolderData(address) {
+    try {
+      const response = await axios.get(
+        'https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=' + address,
+        { timeout: 15000 }
+      );
+      const result = response.data?.result?.[address.toLowerCase()];
+      if (!result) return null;
+
+      const holders = result.holder_list || [];
+      if (holders.length === 0) return null;
+
+      const topHolder = holders[0];
+      const topHolderPercent = parseFloat(topHolder?.percent || 0) * 100;
+      const top10Percent = holders
+        .slice(0, 10)
+        .reduce((sum, h) => sum + parseFloat(h?.percent || 0) * 100, 0);
+
+      return {
+        topHolderPercent,
+        top10Percent,
+        totalHolders: result.holder_count || 0
+      };
+    } catch (error) {
+      console.error('Fetch holder error:', error.message);
       return null;
     }
   }
@@ -160,7 +192,9 @@ class Scanner {
     const marketCap = pairData.marketCap || 0;
     if (marketCap > FILTERS.MAX_MARKET_CAP_USD) return null;
 
-    if (FILTERS.REQUIRED_SOCIALS && !this.hasSocials(profile, pairData)) return null;
+    if (FILTERS.REQUIRED_SOCIALS && !this.hasSocials(profile, pairData)) {
+      return null;
+    }
 
     // Price momentum check
     const priceChange5m = pairData?.priceChange?.m5 || 0;
@@ -183,12 +217,29 @@ class Scanner {
       return null;
     }
 
+    // Security check
     const security = await this.fetchSecurityData(address);
     const securityFlags = this.checkSecurityFlags(security);
 
     if (securityFlags.includes('Honeypot detected')) return null;
     if (securityFlags.includes('Token blacklisted')) return null;
 
+    // Holder concentration check
+    const holderData = await this.fetchHolderData(address);
+    if (holderData) {
+      if (holderData.topHolderPercent > FILTERS.MAX_TOP_HOLDER_PERCENT) {
+        console.log('Rejected: top holder owns ' +
+          holderData.topHolderPercent.toFixed(1) + '%');
+        return null;
+      }
+      if (holderData.top10Percent > 80) {
+        console.log('Rejected: top 10 holders own ' +
+          holderData.top10Percent.toFixed(1) + '%');
+        return null;
+      }
+    }
+
+    // Dev reputation check
     const devWallet = security?.creator_address || 'unknown';
     let devRecord = getDevRecord(devWallet);
     const devReputation = devRecord?.reputation || 'NEW';
@@ -204,7 +255,6 @@ class Scanner {
     }
 
     const score = this.calculateSignalScore(pairData, security, devReputation);
-
     if (score < FILTERS.MIN_SCORE) return null;
 
     this.trackedTokens.push({
@@ -226,6 +276,7 @@ class Scanner {
       devWallet,
       devReputation,
       devRecord,
+      holderData,
       pairData
     };
   }
@@ -275,6 +326,13 @@ class Scanner {
         ' | Rugs: ' + token.devRecord.rugCount
       : 'First time seen';
 
+    const holderSection = token.holderData
+      ? 'HOLDER ANALYSIS\n' +
+        'Top Holder: ' + token.holderData.topHolderPercent.toFixed(1) + '%\n' +
+        'Top 10 Holders: ' + token.holderData.top10Percent.toFixed(1) + '%\n' +
+        'Total Holders: ' + token.holderData.totalHolders + '\n\n'
+      : '';
+
     return (
       'TRENCHPULSE SIGNAL\n' +
       '========================\n\n' +
@@ -292,6 +350,7 @@ class Scanner {
       'Buys: ' + buys + ' | Sells: ' + sells + '\n\n' +
       'SECURITY\n' +
       securityStatus + '\n\n' +
+      holderSection +
       'DEV REPUTATION\n' +
       devLabel + '\n' +
       devStats + '\n\n' +
@@ -341,6 +400,12 @@ class Scanner {
 
         const message = this.formatAlert(token, aiAnalysis);
         await sendTelegramAlert(message);
+
+        // Auto execute based on score and dev reputation
+        const isAutoTrade = token.score >= 80 &&
+          token.devReputation === 'ALPHA';
+        await this.executor.processSignal(token, isAutoTrade);
+
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
@@ -354,6 +419,7 @@ class Scanner {
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
+    this.executor.start();
     console.log('TrenchPulse Scanner started');
     this.scanNewTokens();
     setInterval(() => this.scanNewTokens(), this.scanInterval);
