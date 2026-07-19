@@ -13,7 +13,7 @@ const {
 const FILTERS = {
   MIN_LIQUIDITY_USD: 5000,
   MAX_MARKET_CAP_USD: 500000,
-  MAX_TOKEN_AGE_HOURS: 2,
+  MAX_TOKEN_AGE_HOURS: 3,
   REQUIRED_SOCIALS: true,
   SOLANA_ONLY: true,
   MIN_SCORE: 60,
@@ -26,21 +26,45 @@ const DEX_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9'
 };
 
-// Known safe large holders — excluded from concentration check
+// Known safe Solana protocol addresses
+const SAFE_HOLDER_ADDRESSES = new Set([
+  '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',
+  'AVs9TA4nWDzfPJE9gGVNJMVhcQy3V9PGazuz33BfG2RA',
+  '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
+  'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB',
+  'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4',
+  '9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP',
+  'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc',
+  'Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EkAW7vP',
+  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
+  'EewxydAPCCVuNEyrVN68PuSYdQ7wKn27V9Gjeoi8dy3S',
+  '6LtLpnUFNByNXLyCoK9wA2MykKAmQNZKBdY8s47dehDc',
+  'MFv2hWf31Z9kbCa1snEPdcgp168vLVQLYLiXLy9YKKc',
+  'dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH',
+  'So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo',
+  'SMPLecH534NA9acpos4G6x7uf3LWbCAwZQE9e8ZekMu',
+  'srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX',
+  'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m',
+  'EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp',
+]);
+
 const SAFE_HOLDER_LABELS = [
-  'raydium', 'jupiter', 'orca', 'meteora', 'serum',
+  'raydium', 'jupiter', 'orca', 'meteora', 'lifinity',
+  'serum', 'openbook', 'kamino', 'marginfi', 'solend',
+  'drift', 'bonfida', 'streamflow', 'squads', 'realms',
   'binance', 'coinbase', 'okx', 'bybit', 'kraken',
+  'kucoin', 'huobi', 'gate', 'mexc', 'bitget',
   'liquidity', 'pool', 'lock', 'burn', 'locked',
   'vesting', 'treasury', 'team', 'foundation',
-  'protocol', 'dao', 'multisig', 'program'
+  'protocol', 'dao', 'multisig', 'program', 'vault',
+  'staking', 'yield', 'farm', 'amm', 'lp', 'swap'
 ];
 
 function isSafeHolder(holder) {
   const tag = (holder.tag || '').toLowerCase();
-  const address = (holder.address || '').toLowerCase();
-  return SAFE_HOLDER_LABELS.some(label =>
-    tag.includes(label) || address.includes(label)
-  );
+  const address = (holder.address || '');
+  if (SAFE_HOLDER_ADDRESSES.has(address)) return true;
+  return SAFE_HOLDER_LABELS.some(label => tag.includes(label));
 }
 
 class Scanner {
@@ -59,14 +83,57 @@ class Scanner {
         'https://api.dexscreener.com/token-boosts/latest/v1',
         { timeout: 15000, headers: DEX_HEADERS }
       );
-      return response.data || [];
+      const data = response.data || [];
+      if (data.length > 0) return data;
+
+      // Fallback to Birdeye if DexScreener returns empty
+      console.log('DexScreener empty — trying Birdeye...');
+      return await this.fetchTokenProfilesFallback();
+
     } catch (error) {
       if (error.response?.status === 429) {
-        console.log('DexScreener rate limited — waiting 60 seconds...');
-        await new Promise(resolve => setTimeout(resolve, 60000));
-        return [];
+        console.log('DexScreener rate limited — trying Birdeye fallback...');
+        return await this.fetchTokenProfilesFallback();
       }
       console.error('Fetch profiles error:', error.message);
+      return [];
+    }
+  }
+
+  async fetchTokenProfilesFallback() {
+    try {
+      console.log('Fetching from Birdeye...');
+      const response = await axios.get(
+        'https://public-api.birdeye.so/defi/tokenlist' +
+        '?sort_by=v24hChangePercent' +
+        '&sort_type=desc' +
+        '&offset=0' +
+        '&limit=20' +
+        '&min_liquidity=5000',
+        {
+          timeout: 15000,
+          headers: {
+            'X-API-KEY': process.env.BIRDEYE_API_KEY || 'public',
+            'x-chain': 'solana'
+          }
+        }
+      );
+
+      const tokens = response.data?.data?.tokens || [];
+      console.log('Birdeye returned ' + tokens.length + ' tokens');
+
+      // Normalize Birdeye format to match DexScreener format
+      return tokens.map(t => ({
+        tokenAddress: t.address,
+        address: t.address,
+        description: t.name || 'Unknown',
+        links: t.extensions?.twitter
+          ? [{ type: 'twitter', url: t.extensions.twitter }]
+          : []
+      }));
+
+    } catch (error) {
+      console.error('Birdeye fallback error:', error.message);
       return [];
     }
   }
@@ -117,27 +184,23 @@ class Scanner {
       const holders = result.holder_list || [];
       if (holders.length === 0) return null;
 
-      // Separate safe institutional holders from suspicious ones
       const safeHolders = holders.filter(h => isSafeHolder(h));
       const suspiciousHolders = holders.filter(h => !isSafeHolder(h));
 
-      // Top suspicious holder percentage
       const topSuspiciousPercent = suspiciousHolders.length > 0
         ? parseFloat(suspiciousHolders[0]?.percent || 0) * 100
         : 0;
 
-      // Top suspicious holder among top 10
       const top10SuspiciousPercent = suspiciousHolders
         .slice(0, 10)
         .reduce((sum, h) =>
           sum + parseFloat(h?.percent || 0) * 100, 0
         );
 
-      // Check if any safe institution holds a large amount
       const largeInstitutionalHolders = safeHolders
-        .filter(h => parseFloat(h?.percent || 0) * 100 > 10)
+        .filter(h => parseFloat(h?.percent || 0) * 100 > 5)
         .map(h => ({
-          tag: h.tag || 'Unknown Protocol',
+          tag: h.tag || 'Known Protocol',
           percent: (parseFloat(h?.percent || 0) * 100).toFixed(1)
         }));
 
@@ -190,42 +253,35 @@ class Scanner {
   calculateSignalScore(pairData, security, devReputation, holderData) {
     let score = 0;
 
-    // Liquidity score
     const liquidity = pairData?.liquidity?.usd || 0;
     if (liquidity >= 50000) score += 20;
     else if (liquidity >= 20000) score += 15;
     else if (liquidity >= 10000) score += 10;
     else if (liquidity >= 5000) score += 5;
 
-    // Market cap score
     const mcap = pairData?.marketCap || 0;
     if (mcap <= 100000) score += 20;
     else if (mcap <= 250000) score += 15;
     else if (mcap <= 500000) score += 10;
 
-    // Buy/sell ratio
     const txns = pairData?.txns?.h1 || {};
     const buys = txns.buys || 0;
     const sells = txns.sells || 0;
     if (buys > sells * 1.5) score += 20;
     else if (buys > sells) score += 10;
 
-    // Volume score
     const volume = pairData?.volume?.h1 || 0;
     if (volume >= 50000) score += 15;
     else if (volume >= 10000) score += 10;
     else if (volume >= 1000) score += 5;
 
-    // Security score
     if (security) {
       if (security.mintable !== '1') score += 10;
       if (security.freezable !== '1') score += 5;
     }
 
-    // Institutional support bonus
     if (holderData?.hasInstitutionalSupport) score += 10;
 
-    // Dev reputation boost/penalty
     const reputationBoost = getReputationBoost(devReputation);
     score += reputationBoost;
 
@@ -258,7 +314,6 @@ class Scanner {
     if (FILTERS.REQUIRED_SOCIALS &&
         !this.hasSocials(profile, pairData)) return null;
 
-    // Price momentum checks
     const priceChange5m = pairData?.priceChange?.m5 || 0;
     const priceChange1h = pairData?.priceChange?.h1 || 0;
 
@@ -279,17 +334,14 @@ class Scanner {
       return null;
     }
 
-    // Security check
     const security = await this.fetchSecurityData(address);
     const securityFlags = this.checkSecurityFlags(security);
 
     if (securityFlags.includes('Honeypot detected')) return null;
     if (securityFlags.includes('Token blacklisted')) return null;
 
-    // Holder concentration check
     const holderData = await this.fetchHolderData(address);
     if (holderData) {
-      // Only block if SUSPICIOUS holder (not institutional) owns too much
       if (holderData.topSuspiciousPercent >
           FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
         console.log(
@@ -298,18 +350,15 @@ class Scanner {
         );
         return null;
       }
-
-      // Block if suspicious wallets collectively own too much
       if (holderData.top10SuspiciousPercent > 80) {
         console.log(
-          'Rejected: suspicious holders combined own ' +
+          'Rejected: suspicious holders combined ' +
           holderData.top10SuspiciousPercent.toFixed(1) + '%'
         );
         return null;
       }
     }
 
-    // Dev reputation check
     const devWallet = security?.creator_address || 'unknown';
     let devRecord = getDevRecord(devWallet);
     const devReputation = devRecord?.reputation || 'NEW';
@@ -402,7 +451,6 @@ class Scanner {
         ' | Rugs: ' + token.devRecord.rugCount
       : 'First time seen';
 
-    // Holder section with institutional detection
     let holderSection = '';
     if (token.holderData) {
       holderSection = 'HOLDER ANALYSIS\n' +
@@ -414,9 +462,10 @@ class Scanner {
       if (token.holderData.hasInstitutionalSupport) {
         holderSection += 'Institutional Holders:\n';
         token.holderData.largeInstitutionalHolders.forEach(h => {
-          holderSection += '  ' + h.tag + ': ' + h.percent + '%\n';
+          holderSection +=
+            '  ' + h.tag + ': ' + h.percent + '%\n';
         });
-        holderSection += 'INSTITUTIONAL SUPPORT DETECTED\n';
+        holderSection += 'INSTITUTIONAL SUPPORT\n';
       }
       holderSection += '\n';
     }
@@ -453,7 +502,12 @@ class Scanner {
     try {
       console.log('Scanning for new tokens...');
       const profiles = await this.fetchTokenProfiles();
-      if (!profiles || profiles.length === 0) return;
+      if (!profiles || profiles.length === 0) {
+        console.log('No profiles returned from any source');
+        return;
+      }
+
+      console.log('Processing ' + profiles.length + ' profiles...');
 
       for (const profile of profiles.slice(0, 20)) {
         const address = profile.tokenAddress || profile.address;
@@ -493,14 +547,13 @@ class Scanner {
           institutionalSupport: token.holderData
             ?.hasInstitutionalSupport
             ? token.holderData.largeInstitutionalHolders
-                .map(h => h.tag).join(', ')
+                .map(h => h.tag + ' ' + h.percent + '%').join(', ')
             : 'None'
         }, 'dexscreener');
 
         const message = this.formatAlert(token, aiAnalysis);
         await sendTelegramAlert(message);
 
-        // Auto execute
         const isAutoTrade = token.score >= 80 &&
           token.devReputation === 'ALPHA';
         await this.executor.processSignal(token, isAutoTrade);
