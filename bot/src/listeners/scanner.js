@@ -33,7 +33,7 @@ class Scanner {
   async fetchTokenProfiles() {
     try {
       const response = await axios.get(
-        'https://api.dexscreener.com/token-profiles/latest/v1',
+        'https://api.dexscreener.com/token-boosts/latest/v1',
         { timeout: 15000 }
       );
       return response.data || [];
