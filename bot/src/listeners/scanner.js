@@ -17,7 +17,7 @@ const FILTERS = {
   REQUIRED_SOCIALS: true,
   SOLANA_ONLY: true,
   MIN_SCORE: 60,
-  MAX_TOP_HOLDER_PERCENT: 20
+  MAX_TOP_SUSPICIOUS_HOLDER_PERCENT: 20
 };
 
 const DEX_HEADERS = {
@@ -25,6 +25,23 @@ const DEX_HEADERS = {
   'Accept': 'application/json',
   'Accept-Language': 'en-US,en;q=0.9'
 };
+
+// Known safe large holders — excluded from concentration check
+const SAFE_HOLDER_LABELS = [
+  'raydium', 'jupiter', 'orca', 'meteora', 'serum',
+  'binance', 'coinbase', 'okx', 'bybit', 'kraken',
+  'liquidity', 'pool', 'lock', 'burn', 'locked',
+  'vesting', 'treasury', 'team', 'foundation',
+  'protocol', 'dao', 'multisig', 'program'
+];
+
+function isSafeHolder(holder) {
+  const tag = (holder.tag || '').toLowerCase();
+  const address = (holder.address || '').toLowerCase();
+  return SAFE_HOLDER_LABELS.some(label =>
+    tag.includes(label) || address.includes(label)
+  );
+}
 
 class Scanner {
   constructor() {
@@ -100,19 +117,38 @@ class Scanner {
       const holders = result.holder_list || [];
       if (holders.length === 0) return null;
 
-      const topHolderPercent = parseFloat(
-        holders[0]?.percent || 0
-      ) * 100;
+      // Separate safe institutional holders from suspicious ones
+      const safeHolders = holders.filter(h => isSafeHolder(h));
+      const suspiciousHolders = holders.filter(h => !isSafeHolder(h));
 
-      const top10Percent = holders
+      // Top suspicious holder percentage
+      const topSuspiciousPercent = suspiciousHolders.length > 0
+        ? parseFloat(suspiciousHolders[0]?.percent || 0) * 100
+        : 0;
+
+      // Top suspicious holder among top 10
+      const top10SuspiciousPercent = suspiciousHolders
         .slice(0, 10)
-        .reduce((sum, h) => sum + parseFloat(h?.percent || 0) * 100, 0);
+        .reduce((sum, h) =>
+          sum + parseFloat(h?.percent || 0) * 100, 0
+        );
+
+      // Check if any safe institution holds a large amount
+      const largeInstitutionalHolders = safeHolders
+        .filter(h => parseFloat(h?.percent || 0) * 100 > 10)
+        .map(h => ({
+          tag: h.tag || 'Unknown Protocol',
+          percent: (parseFloat(h?.percent || 0) * 100).toFixed(1)
+        }));
 
       return {
-        topHolderPercent,
-        top10Percent,
-        totalHolders: result.holder_count || 0
+        topSuspiciousPercent,
+        top10SuspiciousPercent,
+        totalHolders: parseInt(result.holder_count || 0),
+        largeInstitutionalHolders,
+        hasInstitutionalSupport: largeInstitutionalHolders.length > 0
       };
+
     } catch (error) {
       console.error('Fetch holder error:', error.message);
       return null;
@@ -151,36 +187,45 @@ class Scanner {
     return flags;
   }
 
-  calculateSignalScore(pairData, security, devReputation) {
+  calculateSignalScore(pairData, security, devReputation, holderData) {
     let score = 0;
 
+    // Liquidity score
     const liquidity = pairData?.liquidity?.usd || 0;
     if (liquidity >= 50000) score += 20;
     else if (liquidity >= 20000) score += 15;
     else if (liquidity >= 10000) score += 10;
     else if (liquidity >= 5000) score += 5;
 
+    // Market cap score
     const mcap = pairData?.marketCap || 0;
     if (mcap <= 100000) score += 20;
     else if (mcap <= 250000) score += 15;
     else if (mcap <= 500000) score += 10;
 
+    // Buy/sell ratio
     const txns = pairData?.txns?.h1 || {};
     const buys = txns.buys || 0;
     const sells = txns.sells || 0;
     if (buys > sells * 1.5) score += 20;
     else if (buys > sells) score += 10;
 
+    // Volume score
     const volume = pairData?.volume?.h1 || 0;
     if (volume >= 50000) score += 15;
     else if (volume >= 10000) score += 10;
     else if (volume >= 1000) score += 5;
 
+    // Security score
     if (security) {
       if (security.mintable !== '1') score += 10;
       if (security.freezable !== '1') score += 5;
     }
 
+    // Institutional support bonus
+    if (holderData?.hasInstitutionalSupport) score += 10;
+
+    // Dev reputation boost/penalty
     const reputationBoost = getReputationBoost(devReputation);
     score += reputationBoost;
 
@@ -213,7 +258,7 @@ class Scanner {
     if (FILTERS.REQUIRED_SOCIALS &&
         !this.hasSocials(profile, pairData)) return null;
 
-    // Price momentum check
+    // Price momentum checks
     const priceChange5m = pairData?.priceChange?.m5 || 0;
     const priceChange1h = pairData?.priceChange?.h1 || 0;
 
@@ -244,15 +289,22 @@ class Scanner {
     // Holder concentration check
     const holderData = await this.fetchHolderData(address);
     if (holderData) {
-      if (holderData.topHolderPercent >
-          FILTERS.MAX_TOP_HOLDER_PERCENT) {
-        console.log('Rejected: top holder owns ' +
-          holderData.topHolderPercent.toFixed(1) + '%');
+      // Only block if SUSPICIOUS holder (not institutional) owns too much
+      if (holderData.topSuspiciousPercent >
+          FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
+        console.log(
+          'Rejected: suspicious holder owns ' +
+          holderData.topSuspiciousPercent.toFixed(1) + '%'
+        );
         return null;
       }
-      if (holderData.top10Percent > 80) {
-        console.log('Rejected: top 10 holders own ' +
-          holderData.top10Percent.toFixed(1) + '%');
+
+      // Block if suspicious wallets collectively own too much
+      if (holderData.top10SuspiciousPercent > 80) {
+        console.log(
+          'Rejected: suspicious holders combined own ' +
+          holderData.top10SuspiciousPercent.toFixed(1) + '%'
+        );
         return null;
       }
     }
@@ -263,8 +315,7 @@ class Scanner {
     const devReputation = devRecord?.reputation || 'NEW';
 
     if (devReputation === 'BLACKLISTED') {
-      console.log('Blocked blacklisted dev: ' +
-        devWallet.slice(0, 8));
+      console.log('Blocked blacklisted dev: ' + devWallet.slice(0, 8));
       return null;
     }
 
@@ -276,8 +327,9 @@ class Scanner {
     }
 
     const score = this.calculateSignalScore(
-      pairData, security, devReputation
+      pairData, security, devReputation, holderData
     );
+
     if (score < FILTERS.MIN_SCORE) return null;
 
     this.trackedTokens.push({
@@ -350,15 +402,24 @@ class Scanner {
         ' | Rugs: ' + token.devRecord.rugCount
       : 'First time seen';
 
-    const holderSection = token.holderData
-      ? 'HOLDER ANALYSIS\n' +
-        'Top Holder: ' +
-        token.holderData.topHolderPercent.toFixed(1) + '%\n' +
-        'Top 10 Holders: ' +
-        token.holderData.top10Percent.toFixed(1) + '%\n' +
+    // Holder section with institutional detection
+    let holderSection = '';
+    if (token.holderData) {
+      holderSection = 'HOLDER ANALYSIS\n' +
+        'Top Suspicious Holder: ' +
+        token.holderData.topSuspiciousPercent.toFixed(1) + '%\n' +
         'Total Holders: ' +
-        token.holderData.totalHolders + '\n\n'
-      : '';
+        token.holderData.totalHolders + '\n';
+
+      if (token.holderData.hasInstitutionalSupport) {
+        holderSection += 'Institutional Holders:\n';
+        token.holderData.largeInstitutionalHolders.forEach(h => {
+          holderSection += '  ' + h.tag + ': ' + h.percent + '%\n';
+        });
+        holderSection += 'INSTITUTIONAL SUPPORT DETECTED\n';
+      }
+      holderSection += '\n';
+    }
 
     return (
       'TRENCHPULSE SIGNAL\n' +
@@ -405,7 +466,9 @@ class Scanner {
         console.log(
           'Signal: ' + token.name +
           ' | Score: ' + token.score +
-          ' | Dev: ' + token.devReputation
+          ' | Dev: ' + token.devReputation +
+          (token.holderData?.hasInstitutionalSupport
+            ? ' | INSTITUTIONAL' : '')
         );
 
         const aiAnalysis = await analyzeToken({
@@ -419,17 +482,25 @@ class Scanner {
           priceChange: token.pairData?.priceChange?.h1 || 0,
           liquidity: token.liquidity.toLocaleString(),
           marketCap: token.marketCap.toLocaleString(),
-          volume: (token.pairData?.volume?.h1 || 0).toLocaleString(),
+          volume: (
+            token.pairData?.volume?.h1 || 0
+          ).toLocaleString(),
           buys: token.pairData?.txns?.h1?.buys || 0,
           sells: token.pairData?.txns?.h1?.sells || 0,
           securityStatus: token.securityFlags.length === 0
             ? 'CLEAN' : token.securityFlags.join(', '),
-          devReputation: token.devReputation
+          devReputation: token.devReputation,
+          institutionalSupport: token.holderData
+            ?.hasInstitutionalSupport
+            ? token.holderData.largeInstitutionalHolders
+                .map(h => h.tag).join(', ')
+            : 'None'
         }, 'dexscreener');
 
         const message = this.formatAlert(token, aiAnalysis);
         await sendTelegramAlert(message);
 
+        // Auto execute
         const isAutoTrade = token.score >= 80 &&
           token.devReputation === 'ALPHA';
         await this.executor.processSignal(token, isAutoTrade);
