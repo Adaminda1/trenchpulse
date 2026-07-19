@@ -20,10 +20,16 @@ const FILTERS = {
   MAX_TOP_HOLDER_PERCENT: 20
 };
 
+const DEX_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9'
+};
+
 class Scanner {
   constructor() {
     this.isRunning = false;
-    this.scanInterval = 300000; // 5 minutes
+    this.scanInterval = 300000;
     this.seenTokens = new Set();
     this.trackedTokens = [];
     this.executor = new AutoExecutor();
@@ -34,10 +40,15 @@ class Scanner {
     try {
       const response = await axios.get(
         'https://api.dexscreener.com/token-boosts/latest/v1',
-        { timeout: 15000 }
+        { timeout: 15000, headers: DEX_HEADERS }
       );
       return response.data || [];
     } catch (error) {
+      if (error.response?.status === 429) {
+        console.log('DexScreener rate limited — waiting 60 seconds...');
+        await new Promise(resolve => setTimeout(resolve, 60000));
+        return [];
+      }
       console.error('Fetch profiles error:', error.message);
       return [];
     }
@@ -47,7 +58,7 @@ class Scanner {
     try {
       const response = await axios.get(
         'https://api.dexscreener.com/latest/dex/tokens/' + address,
-        { timeout: 15000 }
+        { timeout: 15000, headers: DEX_HEADERS }
       );
       const pairs = response.data?.pairs;
       if (!pairs || pairs.length === 0) return null;
@@ -55,6 +66,10 @@ class Scanner {
         (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
       )[0];
     } catch (error) {
+      if (error.response?.status === 429) {
+        await new Promise(resolve => setTimeout(resolve, 30000));
+        return null;
+      }
       console.error('Fetch token error:', error.message);
       return null;
     }
@@ -85,8 +100,10 @@ class Scanner {
       const holders = result.holder_list || [];
       if (holders.length === 0) return null;
 
-      const topHolder = holders[0];
-      const topHolderPercent = parseFloat(topHolder?.percent || 0) * 100;
+      const topHolderPercent = parseFloat(
+        holders[0]?.percent || 0
+      ) * 100;
+
       const top10Percent = holders
         .slice(0, 10)
         .reduce((sum, h) => sum + parseFloat(h?.percent || 0) * 100, 0);
@@ -178,7 +195,8 @@ class Scanner {
   }
 
   async analyzeToken(profile) {
-    const address = profile.tokenAddress;
+    const address = profile.tokenAddress || profile.address;
+    if (!address) return null;
 
     const pairData = await this.fetchTokenData(address);
     if (!pairData) return null;
@@ -192,9 +210,8 @@ class Scanner {
     const marketCap = pairData.marketCap || 0;
     if (marketCap > FILTERS.MAX_MARKET_CAP_USD) return null;
 
-    if (FILTERS.REQUIRED_SOCIALS && !this.hasSocials(profile, pairData)) {
-      return null;
-    }
+    if (FILTERS.REQUIRED_SOCIALS &&
+        !this.hasSocials(profile, pairData)) return null;
 
     // Price momentum check
     const priceChange5m = pairData?.priceChange?.m5 || 0;
@@ -227,7 +244,8 @@ class Scanner {
     // Holder concentration check
     const holderData = await this.fetchHolderData(address);
     if (holderData) {
-      if (holderData.topHolderPercent > FILTERS.MAX_TOP_HOLDER_PERCENT) {
+      if (holderData.topHolderPercent >
+          FILTERS.MAX_TOP_HOLDER_PERCENT) {
         console.log('Rejected: top holder owns ' +
           holderData.topHolderPercent.toFixed(1) + '%');
         return null;
@@ -245,16 +263,21 @@ class Scanner {
     const devReputation = devRecord?.reputation || 'NEW';
 
     if (devReputation === 'BLACKLISTED') {
-      console.log('Blocked blacklisted dev: ' + devWallet.slice(0, 8));
+      console.log('Blocked blacklisted dev: ' +
+        devWallet.slice(0, 8));
       return null;
     }
 
     if (devWallet !== 'unknown') {
-      devRecord = registerToken(devWallet, address,
-        profile.description || 'Unknown');
+      devRecord = registerToken(
+        devWallet, address,
+        profile.description || 'Unknown'
+      );
     }
 
-    const score = this.calculateSignalScore(pairData, security, devReputation);
+    const score = this.calculateSignalScore(
+      pairData, security, devReputation
+    );
     if (score < FILTERS.MIN_SCORE) return null;
 
     this.trackedTokens.push({
@@ -266,7 +289,8 @@ class Scanner {
 
     return {
       address,
-      name: pairData.baseToken?.name || profile.description || 'Unknown',
+      name: pairData.baseToken?.name ||
+        profile.description || 'Unknown',
       symbol: pairData.baseToken?.symbol || '???',
       liquidity,
       marketCap,
@@ -328,9 +352,12 @@ class Scanner {
 
     const holderSection = token.holderData
       ? 'HOLDER ANALYSIS\n' +
-        'Top Holder: ' + token.holderData.topHolderPercent.toFixed(1) + '%\n' +
-        'Top 10 Holders: ' + token.holderData.top10Percent.toFixed(1) + '%\n' +
-        'Total Holders: ' + token.holderData.totalHolders + '\n\n'
+        'Top Holder: ' +
+        token.holderData.topHolderPercent.toFixed(1) + '%\n' +
+        'Top 10 Holders: ' +
+        token.holderData.top10Percent.toFixed(1) + '%\n' +
+        'Total Holders: ' +
+        token.holderData.totalHolders + '\n\n'
       : '';
 
     return (
@@ -342,7 +369,8 @@ class Scanner {
       'SCORE: ' + token.score + '/100 - ' + token.rating + '\n\n' +
       'MARKET DATA\n' +
       'Price: $' + parseFloat(price).toFixed(8) + '\n' +
-      'Price Change 1h: ' + trend + ' ' + Math.abs(priceChange) + '%\n' +
+      'Price Change 1h: ' + trend + ' ' +
+      Math.abs(priceChange) + '%\n' +
       'Liquidity: $' + token.liquidity.toLocaleString() + '\n' +
       'Market Cap: $' + token.marketCap.toLocaleString() + '\n' +
       'Volume 1h: $' + volume.toLocaleString() + '\n\n' +
@@ -367,7 +395,7 @@ class Scanner {
       if (!profiles || profiles.length === 0) return;
 
       for (const profile of profiles.slice(0, 20)) {
-        const address = profile.tokenAddress;
+        const address = profile.tokenAddress || profile.address;
         if (!address || this.seenTokens.has(address)) continue;
         this.seenTokens.add(address);
 
@@ -380,13 +408,14 @@ class Scanner {
           ' | Dev: ' + token.devReputation
         );
 
-        // Get AI analysis
         const aiAnalysis = await analyzeToken({
           name: token.name,
           symbol: token.symbol,
           score: token.score,
           rating: token.rating,
-          price: parseFloat(token.pairData?.priceUsd || 0).toFixed(8),
+          price: parseFloat(
+            token.pairData?.priceUsd || 0
+          ).toFixed(8),
           priceChange: token.pairData?.priceChange?.h1 || 0,
           liquidity: token.liquidity.toLocaleString(),
           marketCap: token.marketCap.toLocaleString(),
@@ -401,7 +430,6 @@ class Scanner {
         const message = this.formatAlert(token, aiAnalysis);
         await sendTelegramAlert(message);
 
-        // Auto execute based on score and dev reputation
         const isAutoTrade = token.score >= 80 &&
           token.devReputation === 'ALPHA';
         await this.executor.processSignal(token, isAutoTrade);
