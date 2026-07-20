@@ -68,78 +68,10 @@ function isSafeHolder(holder) {
 
 class Scanner {
   constructor() {
-    this.isRunning = false;
-    this.scanInterval = 300000;
     this.seenTokens = new Set();
     this.trackedTokens = [];
     this.executor = new AutoExecutor();
     console.log('TrenchPulse Scanner initialized');
-  }
-
-  async fetchTokenProfiles() {
-    try {
-      console.log('Fetching from Jupiter trending tokens...');
-      const response = await axios.get(
-        'https://tokens.jup.ag/tokens?tags=birdeye-trending',
-        { timeout: 15000, headers: DEX_HEADERS }
-      );
-
-      const tokens = response.data || [];
-      console.log('Jupiter returned: ' + tokens.length + ' tokens');
-
-      if (tokens.length > 0) {
-        return tokens
-          .filter(t => t.address)
-          .slice(0, 30)
-          .map(t => ({
-            tokenAddress: t.address,
-            address: t.address,
-            description: t.name || 'Unknown',
-            links: t.extensions?.twitter
-              ? [{ type: 'twitter', url: t.extensions.twitter }]
-              : t.extensions?.telegram
-              ? [{ type: 'telegram', url: t.extensions.telegram }]
-              : []
-          }));
-      }
-
-      return await this.fetchTokenProfilesFallback();
-
-    } catch (error) {
-      console.error('Jupiter fetch error:', error.message);
-      return await this.fetchTokenProfilesFallback();
-    }
-  }
-
-  async fetchTokenProfilesFallback() {
-    try {
-      console.log('Trying Jupiter community list fallback...');
-      const response = await axios.get(
-        'https://tokens.jup.ag/tokens?tags=community',
-        { timeout: 15000, headers: DEX_HEADERS }
-      );
-
-      const tokens = response.data || [];
-      console.log('Jupiter fallback returned: ' + tokens.length);
-
-      return tokens
-        .filter(t => t.address)
-        .slice(0, 30)
-        .map(t => ({
-          tokenAddress: t.address,
-          address: t.address,
-          description: t.name || 'Unknown',
-          links: t.extensions?.twitter
-            ? [{ type: 'twitter', url: t.extensions.twitter }]
-            : t.extensions?.telegram
-            ? [{ type: 'telegram', url: t.extensions.telegram }]
-            : []
-        }));
-
-    } catch (error) {
-      console.error('Jupiter fallback error:', error.message);
-      return [];
-    }
   }
 
   async fetchTokenData(address) {
@@ -154,11 +86,7 @@ class Scanner {
         (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
       )[0];
     } catch (error) {
-      if (error.response?.status === 429) {
-        await new Promise(resolve => setTimeout(resolve, 30000));
-        return null;
-      }
-      console.error('Fetch token error:', error.message);
+      console.error('Fetch token data error:', error.message);
       return null;
     }
   }
@@ -228,8 +156,8 @@ class Scanner {
     return ageHours > FILTERS.MAX_TOKEN_AGE_HOURS;
   }
 
-  hasSocials(profile, pairData) {
-    const links = profile.links || [];
+  hasSocials(tokenData, pairData) {
+    const links = tokenData.links || [];
     const socials = pairData?.info?.socials || [];
     return (
       links.some(l =>
@@ -299,115 +227,170 @@ class Scanner {
     return 'RISKY';
   }
 
-  async analyzeToken(profile) {
-    const address = profile.tokenAddress || profile.address;
-    if (!address) return null;
+  // Called by PumpScanner when a token passes initial filters
+  async analyzeAndAlert(tokenData) {
+    try {
+      const address = tokenData.address;
+      if (!address || this.seenTokens.has(address)) return;
+      this.seenTokens.add(address);
 
-    const pairData = await this.fetchTokenData(address);
-    if (!pairData) return null;
+      console.log('Analyzing: ' + tokenData.name);
 
-    if (FILTERS.SOLANA_ONLY && pairData.chainId !== 'solana') return null;
-    if (this.isTokenTooOld(pairData.pairCreatedAt)) return null;
-
-    const liquidity = pairData.liquidity?.usd || 0;
-    if (liquidity < FILTERS.MIN_LIQUIDITY_USD) return null;
-
-    const marketCap = pairData.marketCap || 0;
-    if (marketCap > FILTERS.MAX_MARKET_CAP_USD) return null;
-
-    if (FILTERS.REQUIRED_SOCIALS &&
-        !this.hasSocials(profile, pairData)) return null;
-
-    const priceChange5m = pairData?.priceChange?.m5 || 0;
-    const priceChange1h = pairData?.priceChange?.h1 || 0;
-
-    if (priceChange5m < 0) {
-      console.log('Rejected: negative 5min price action');
-      return null;
-    }
-
-    if (priceChange1h < -15) {
-      console.log('Rejected: down more than 15% in 1 hour');
-      return null;
-    }
-
-    const buyVolume = pairData?.volume?.buyVolume || 0;
-    const sellVolume = pairData?.volume?.sellVolume || 0;
-    if (sellVolume > buyVolume && buyVolume > 0) {
-      console.log('Rejected: sell volume dominates');
-      return null;
-    }
-
-    const security = await this.fetchSecurityData(address);
-    const securityFlags = this.checkSecurityFlags(security);
-
-    if (securityFlags.includes('Honeypot detected')) return null;
-    if (securityFlags.includes('Token blacklisted')) return null;
-
-    const holderData = await this.fetchHolderData(address);
-    if (holderData) {
-      if (holderData.topSuspiciousPercent >
-          FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
-        console.log(
-          'Rejected: suspicious holder owns ' +
-          holderData.topSuspiciousPercent.toFixed(1) + '%'
-        );
-        return null;
+      // Get full market data from DexScreener
+      const pairData = await this.fetchTokenData(address);
+      if (!pairData) {
+        console.log('No pair data yet for: ' + tokenData.name);
+        return;
       }
-      if (holderData.top10SuspiciousPercent > 80) {
-        console.log(
-          'Rejected: suspicious holders combined ' +
-          holderData.top10SuspiciousPercent.toFixed(1) + '%'
-        );
-        return null;
+
+      if (FILTERS.SOLANA_ONLY && pairData.chainId !== 'solana') return;
+      if (this.isTokenTooOld(pairData.pairCreatedAt)) return;
+
+      const liquidity = pairData.liquidity?.usd || 0;
+      if (liquidity < FILTERS.MIN_LIQUIDITY_USD) {
+        console.log('Rejected: low liquidity $' + liquidity);
+        return;
       }
-    }
 
-    const devWallet = security?.creator_address || 'unknown';
-    let devRecord = getDevRecord(devWallet);
-    const devReputation = devRecord?.reputation || 'NEW';
+      const marketCap = pairData.marketCap || 0;
+      if (marketCap > FILTERS.MAX_MARKET_CAP_USD) return;
 
-    if (devReputation === 'BLACKLISTED') {
-      console.log('Blocked blacklisted dev: ' + devWallet.slice(0, 8));
-      return null;
-    }
+      if (FILTERS.REQUIRED_SOCIALS &&
+          !this.hasSocials(tokenData, pairData)) {
+        console.log('Rejected: no socials');
+        return;
+      }
 
-    if (devWallet !== 'unknown') {
-      devRecord = registerToken(
-        devWallet, address,
-        profile.description || 'Unknown'
+      const priceChange5m = pairData?.priceChange?.m5 || 0;
+      const priceChange1h = pairData?.priceChange?.h1 || 0;
+
+      if (priceChange5m < 0) {
+        console.log('Rejected: negative 5min price action');
+        return;
+      }
+
+      if (priceChange1h < -15) {
+        console.log('Rejected: down 15%+ in 1 hour');
+        return;
+      }
+
+      const buyVolume = pairData?.volume?.buyVolume || 0;
+      const sellVolume = pairData?.volume?.sellVolume || 0;
+      if (sellVolume > buyVolume && buyVolume > 0) {
+        console.log('Rejected: sell volume dominates');
+        return;
+      }
+
+      const security = await this.fetchSecurityData(address);
+      const securityFlags = this.checkSecurityFlags(security);
+
+      if (securityFlags.includes('Honeypot detected')) return;
+      if (securityFlags.includes('Token blacklisted')) return;
+
+      const holderData = await this.fetchHolderData(address);
+      if (holderData) {
+        if (holderData.topSuspiciousPercent >
+            FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
+          console.log(
+            'Rejected: suspicious holder ' +
+            holderData.topSuspiciousPercent.toFixed(1) + '%'
+          );
+          return;
+        }
+        if (holderData.top10SuspiciousPercent > 80) {
+          console.log('Rejected: top 10 suspicious too high');
+          return;
+        }
+      }
+
+      const devWallet = security?.creator_address ||
+        tokenData.devWallet || 'unknown';
+      let devRecord = getDevRecord(devWallet);
+      const devReputation = devRecord?.reputation || 'NEW';
+
+      if (devReputation === 'BLACKLISTED') {
+        console.log('Blocked blacklisted dev');
+        return;
+      }
+
+      if (devWallet !== 'unknown') {
+        devRecord = registerToken(
+          devWallet, address, tokenData.name
+        );
+      }
+
+      const score = this.calculateSignalScore(
+        pairData, security, devReputation, holderData
       );
+
+      if (score < FILTERS.MIN_SCORE) {
+        console.log('Rejected: score ' + score + ' below 60');
+        return;
+      }
+
+      this.trackedTokens.push({
+        address,
+        devWallet,
+        initialPrice: parseFloat(pairData.priceUsd || 0),
+        trackedAt: Date.now()
+      });
+
+      const token = {
+        address,
+        name: pairData.baseToken?.name || tokenData.name,
+        symbol: pairData.baseToken?.symbol || tokenData.symbol,
+        liquidity,
+        marketCap,
+        score,
+        rating: this.getScoreRating(score),
+        securityFlags,
+        devWallet,
+        devReputation,
+        devRecord,
+        holderData,
+        pairData
+      };
+
+      console.log(
+        'SIGNAL: ' + token.name +
+        ' | Score: ' + token.score +
+        ' | Dev: ' + token.devReputation
+      );
+
+      const aiAnalysis = await analyzeToken({
+        name: token.name,
+        symbol: token.symbol,
+        score: token.score,
+        rating: token.rating,
+        price: parseFloat(
+          token.pairData?.priceUsd || 0
+        ).toFixed(8),
+        priceChange: token.pairData?.priceChange?.h1 || 0,
+        liquidity: token.liquidity.toLocaleString(),
+        marketCap: token.marketCap.toLocaleString(),
+        volume: (token.pairData?.volume?.h1 || 0).toLocaleString(),
+        buys: token.pairData?.txns?.h1?.buys || 0,
+        sells: token.pairData?.txns?.h1?.sells || 0,
+        securityStatus: token.securityFlags.length === 0
+          ? 'CLEAN' : token.securityFlags.join(', '),
+        devReputation: token.devReputation,
+        institutionalSupport: token.holderData
+          ?.hasInstitutionalSupport
+          ? token.holderData.largeInstitutionalHolders
+              .map(h => h.tag + ' ' + h.percent + '%').join(', ')
+          : 'None'
+      }, 'dexscreener');
+
+      const message = this.formatAlert(token, aiAnalysis);
+      await sendTelegramAlert(message);
+
+      const isAutoTrade = token.score >= 80 &&
+        token.devReputation === 'ALPHA';
+      await this.executor.processSignal(token, isAutoTrade);
+
+    } catch (error) {
+      console.error('analyzeAndAlert error:', error.message);
     }
-
-    const score = this.calculateSignalScore(
-      pairData, security, devReputation, holderData
-    );
-
-    if (score < FILTERS.MIN_SCORE) return null;
-
-    this.trackedTokens.push({
-      address,
-      devWallet,
-      initialPrice: parseFloat(pairData.priceUsd || 0),
-      trackedAt: Date.now()
-    });
-
-    return {
-      address,
-      name: pairData.baseToken?.name ||
-        profile.description || 'Unknown',
-      symbol: pairData.baseToken?.symbol || '???',
-      liquidity,
-      marketCap,
-      score,
-      rating: this.getScoreRating(score),
-      securityFlags,
-      devWallet,
-      devReputation,
-      devRecord,
-      holderData,
-      pairData
-    };
   }
 
   async checkTrackedOutcomes() {
@@ -497,93 +480,20 @@ class Scanner {
       devLabel + '\n' +
       devStats + '\n\n' +
       (aiAnalysis ? 'AI ANALYSIS\n' + aiAnalysis + '\n\n' : '') +
-      'Chart: ' + (token.pairData?.url || 'N/A') + '\n\n' +
+      'Chart: https://dexscreener.com/solana/' + token.address + '\n\n' +
       'TrenchPulse Scanner'
     );
   }
 
-  async scanNewTokens() {
-    try {
-      console.log('Scanning for new tokens...');
-      const profiles = await this.fetchTokenProfiles();
-
-      if (!profiles || profiles.length === 0) {
-        console.log('No profiles returned from any source');
-        return;
-      }
-
-      console.log('Processing ' + profiles.length + ' profiles...');
-
-      for (const profile of profiles.slice(0, 20)) {
-        const address = profile.tokenAddress || profile.address;
-        if (!address || this.seenTokens.has(address)) continue;
-        this.seenTokens.add(address);
-
-        const token = await this.analyzeToken(profile);
-        if (!token) continue;
-
-        console.log(
-          'Signal: ' + token.name +
-          ' | Score: ' + token.score +
-          ' | Dev: ' + token.devReputation +
-          (token.holderData?.hasInstitutionalSupport
-            ? ' | INSTITUTIONAL' : '')
-        );
-
-        const aiAnalysis = await analyzeToken({
-          name: token.name,
-          symbol: token.symbol,
-          score: token.score,
-          rating: token.rating,
-          price: parseFloat(
-            token.pairData?.priceUsd || 0
-          ).toFixed(8),
-          priceChange: token.pairData?.priceChange?.h1 || 0,
-          liquidity: token.liquidity.toLocaleString(),
-          marketCap: token.marketCap.toLocaleString(),
-          volume: (
-            token.pairData?.volume?.h1 || 0
-          ).toLocaleString(),
-          buys: token.pairData?.txns?.h1?.buys || 0,
-          sells: token.pairData?.txns?.h1?.sells || 0,
-          securityStatus: token.securityFlags.length === 0
-            ? 'CLEAN' : token.securityFlags.join(', '),
-          devReputation: token.devReputation,
-          institutionalSupport: token.holderData
-            ?.hasInstitutionalSupport
-            ? token.holderData.largeInstitutionalHolders
-                .map(h => h.tag + ' ' + h.percent + '%').join(', ')
-            : 'None'
-        }, 'dexscreener');
-
-        const message = this.formatAlert(token, aiAnalysis);
-        await sendTelegramAlert(message);
-
-        const isAutoTrade = token.score >= 80 &&
-          token.devReputation === 'ALPHA';
-        await this.executor.processSignal(token, isAutoTrade);
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-
-      await this.checkTrackedOutcomes();
-
-    } catch (error) {
-      console.error('Scanner error:', error.message);
-    }
-  }
-
   start() {
-    if (this.isRunning) return;
-    this.isRunning = true;
     this.executor.start();
-    console.log('TrenchPulse Scanner started');
-    this.scanNewTokens();
-    setInterval(() => this.scanNewTokens(), this.scanInterval);
+    console.log('TrenchPulse Scanner ready');
+
+    // Check outcomes every 6 hours
+    setInterval(() => this.checkTrackedOutcomes(), 6 * 60 * 60 * 1000);
   }
 
   stop() {
-    this.isRunning = false;
     console.log('TrenchPulse Scanner stopped');
   }
 }

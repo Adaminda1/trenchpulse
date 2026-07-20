@@ -23,7 +23,8 @@ const FILTERS = {
 };
 
 class PumpScanner {
-  constructor() {
+  constructor(scanner) {
+    this.scanner = scanner;
     this.ws = null;
     this.isRunning = false;
     this.seenTokens = new Set();

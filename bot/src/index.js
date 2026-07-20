@@ -9,7 +9,7 @@ const { DexWebhook } = require('./listeners/dexwebhook');
 
 // Initialize scanners
 const scanner = new Scanner();
-const pumpScanner = new PumpScanner();
+const pumpScanner = new PumpScanner(scanner);
 const dexWebhook = new DexWebhook(scanner);
 
 // HTTP server — handles health check AND DexScreener webhooks
