@@ -78,50 +78,66 @@ class Scanner {
 
   async fetchTokenProfiles() {
     try {
+      console.log('Fetching from Jupiter trending tokens...');
       const response = await axios.get(
-        'https://api.dexscreener.com/token-boosts/latest/v1',
+        'https://tokens.jup.ag/tokens?tags=birdeye-trending',
         { timeout: 15000, headers: DEX_HEADERS }
       );
-      const data = response.data || [];
-      if (data.length > 0) {
-        console.log('DexScreener returned: ' + data.length + ' tokens');
-        return data;
+
+      const tokens = response.data || [];
+      console.log('Jupiter returned: ' + tokens.length + ' tokens');
+
+      if (tokens.length > 0) {
+        return tokens
+          .filter(t => t.address)
+          .slice(0, 30)
+          .map(t => ({
+            tokenAddress: t.address,
+            address: t.address,
+            description: t.name || 'Unknown',
+            links: t.extensions?.twitter
+              ? [{ type: 'twitter', url: t.extensions.twitter }]
+              : t.extensions?.telegram
+              ? [{ type: 'telegram', url: t.extensions.telegram }]
+              : []
+          }));
       }
-      console.log('DexScreener empty — trying fallback...');
+
       return await this.fetchTokenProfilesFallback();
+
     } catch (error) {
-      if (error.response?.status === 429) {
-        console.log('DexScreener rate limited — trying fallback...');
-        return await this.fetchTokenProfilesFallback();
-      }
-      console.error('Fetch profiles error:', error.message);
+      console.error('Jupiter fetch error:', error.message);
       return await this.fetchTokenProfilesFallback();
     }
   }
 
   async fetchTokenProfilesFallback() {
     try {
-      console.log('Fetching from DexScreener pairs fallback...');
+      console.log('Trying Jupiter community list fallback...');
       const response = await axios.get(
-        'https://api.dexscreener.com/latest/dex/pairs/solana',
+        'https://tokens.jup.ag/tokens?tags=community',
         { timeout: 15000, headers: DEX_HEADERS }
       );
 
-      const pairs = response.data?.pairs || [];
-      console.log('DexScreener pairs returned: ' + pairs.length);
+      const tokens = response.data || [];
+      console.log('Jupiter fallback returned: ' + tokens.length);
 
-      // Normalize to standard format
-      return pairs
-        .filter(p => p.baseToken?.address)
-        .map(p => ({
-          tokenAddress: p.baseToken.address,
-          address: p.baseToken.address,
-          description: p.baseToken.name || 'Unknown',
-          links: p.info?.socials || []
+      return tokens
+        .filter(t => t.address)
+        .slice(0, 30)
+        .map(t => ({
+          tokenAddress: t.address,
+          address: t.address,
+          description: t.name || 'Unknown',
+          links: t.extensions?.twitter
+            ? [{ type: 'twitter', url: t.extensions.twitter }]
+            : t.extensions?.telegram
+            ? [{ type: 'telegram', url: t.extensions.telegram }]
+            : []
         }));
 
     } catch (error) {
-      console.error('DexScreener pairs fallback error:', error.message);
+      console.error('Jupiter fallback error:', error.message);
       return [];
     }
   }
