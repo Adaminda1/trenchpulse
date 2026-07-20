@@ -59,32 +59,38 @@ class PumpScanner {
       const solAmount = parseFloat(data.solAmount || 0);
       const marketCapSol = parseFloat(data.marketCapSol || 0);
 
+      // Keyword filter
       if (this.containsBlockedKeyword(name) ||
           this.containsBlockedKeyword(symbol)) {
         console.log('PumpScanner blocked keyword: ' + name);
         return;
       }
 
+      // Name quality filter
       if (!this.isValidName(name)) {
         console.log('PumpScanner blocked invalid name: ' + name);
         return;
       }
 
+      // Minimum initial buy filter
       if (solAmount < FILTERS.MIN_SOL_AMOUNT) {
         console.log('PumpScanner blocked low buy: ' + solAmount + ' SOL');
         return;
       }
 
+      // Minimum market cap filter
       if (marketCapSol < FILTERS.MIN_MARKET_CAP_SOL) {
         console.log('PumpScanner blocked low mcap: ' + marketCapSol + ' SOL');
         return;
       }
 
+      // Image filter
       if (FILTERS.REQUIRE_IMAGE && !data.image) {
         console.log('PumpScanner blocked: no image');
         return;
       }
 
+      // Dev reputation check
       const devRecord = getDevRecord(devWallet);
       const devReputation = devRecord?.reputation || 'NEW';
 
@@ -94,6 +100,7 @@ class PumpScanner {
         return;
       }
 
+      // Register token for outcome tracking
       if (devWallet !== 'unknown') {
         registerToken(devWallet, address, name);
       }
@@ -105,6 +112,7 @@ class PumpScanner {
           ' | Rugs: ' + devRecord.rugCount
         : 'First time seen';
 
+      // Conviction rating based on SOL spent
       let conviction = 'LOW';
       if (solAmount >= 10) conviction = 'HIGH';
       else if (solAmount >= 3) conviction = 'MEDIUM';
@@ -120,6 +128,7 @@ class PumpScanner {
         devStats
       }, 'pump');
 
+      // Build early launch alert
       const message =
         'PUMP.FUN EARLY LAUNCH\n' +
         '========================\n\n' +
@@ -146,7 +155,26 @@ class PumpScanner {
         ' | Conviction: ' + conviction
       );
 
+      // Send early launch alert immediately
       await sendTelegramAlert(message);
+
+      // Pass to scanner for deeper analysis after 30 seconds
+      // (gives DexScreener time to index the token)
+      if (this.scanner) {
+        setTimeout(async () => {
+          await this.scanner.analyzeAndAlert({
+            address,
+            name,
+            symbol,
+            devWallet,
+            links: data.twitter
+              ? [{ type: 'twitter', url: data.twitter }]
+              : data.telegram
+              ? [{ type: 'telegram', url: data.telegram }]
+              : []
+          });
+        }, 30000);
+      }
 
     } catch (error) {
       console.error('PumpScanner token error:', error.message);
