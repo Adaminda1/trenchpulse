@@ -1,26 +1,67 @@
 require('dotenv').config();
 const http = require('http');
+const https = require('https');
 const TelegramBotLib = require('node-telegram-bot-api');
 const TelegramBot = TelegramBotLib.default || TelegramBotLib;
 const { Scanner } = require('./listeners/scanner');
 const { PumpScanner } = require('./listeners/pumpscanner');
+const { DexWebhook } = require('./listeners/dexwebhook');
 
-// Health check server for Render
-const server = http.createServer((req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-cache'
-  });
-  res.end(JSON.stringify({
-    status: 'alive',
-    service: 'TrenchPulse',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  }));
+// Initialize scanners
+const scanner = new Scanner();
+const pumpScanner = new PumpScanner();
+const dexWebhook = new DexWebhook(scanner);
+
+// HTTP server — handles health check AND DexScreener webhooks
+const server = http.createServer(async (req, res) => {
+
+  // Health check endpoint
+  if (req.method === 'GET' && req.url === '/') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache'
+    });
+    res.end(JSON.stringify({
+      status: 'alive',
+      service: 'TrenchPulse',
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime())
+    }));
+    return;
+  }
+
+  // DexScreener webhook endpoint
+  if (req.method === 'POST' && req.url === '/webhook/dexscreener') {
+    let body = '';
+
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+
+    req.on('end', async () => {
+      try {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ received: true }));
+
+        const data = JSON.parse(body);
+        console.log('DexScreener webhook received');
+        await dexWebhook.handleWebhookData(data);
+
+      } catch (error) {
+        console.error('Webhook parse error:', error.message);
+      }
+    });
+    return;
+  }
+
+  // 404 for everything else
+  res.writeHead(404);
+  res.end('Not found');
 });
 
 server.listen(process.env.PORT || 3000, () => {
-  console.log('Health check server running');
+  console.log('TrenchPulse server running on port ' +
+    (process.env.PORT || 3000));
 });
 
 console.log('TRENCHPULSE INITIALIZED');
@@ -29,26 +70,18 @@ console.log('Solana RPC connected');
 console.log('Telegram alerts enabled');
 console.log('Scanning for new tokens...');
 
-// Initialize scanners
-const scanner = new Scanner();
-const pumpScanner = new PumpScanner();
-
-// Telegram bot for receiving approval replies
+// Telegram bot for commands
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
   polling: true
 });
 
-// Handle approval replies and commands
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id.toString();
   const yourChatId = process.env.TELEGRAM_CHAT_ID;
-
-  // Only accept messages from you
   if (chatId !== yourChatId) return;
 
   const text = msg.text || '';
 
-  // Handle trade approvals
   if (text.startsWith('BUY ') || text.startsWith('SKIP ')) {
     const handled = await scanner.executor.handleApprovalReply(text);
     if (!handled) {
@@ -57,7 +90,6 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // Bot commands
   switch (text) {
     case '/positions':
       bot.sendMessage(chatId,
@@ -110,20 +142,20 @@ bot.on('message', async (msg) => {
   }
 });
 
-// Start scanners
-scanner.start();
+// Start Pump.fun scanner
 pumpScanner.start();
 
-// Self ping every 10 minutes to prevent Render spindown
+// Start DexScreener polling as backup
+// (webhook is primary, polling is fallback)
+scanner.start();
+
+// Self ping every 10 minutes
 const RENDER_URL = process.env.RENDER_URL ||
   'https://trenchpulse-qceu.onrender.com';
 
-setInterval(async () => {
+setInterval(() => {
   try {
-    const http = require('http');
-    const https = require('https');
     const client = RENDER_URL.startsWith('https') ? https : http;
-
     client.get(RENDER_URL, (res) => {
       console.log('Self-ping: ' + res.statusCode);
     }).on('error', (err) => {
@@ -134,7 +166,8 @@ setInterval(async () => {
   }
 }, 10 * 60 * 1000);
 
-console.log('Self-ping active — pinging every 10 minutes');
+console.log('Self-ping active every 10 minutes');
+console.log('Webhook URL: ' + RENDER_URL + '/webhook/dexscreener');
 
 // Graceful shutdown
 process.on('SIGINT', () => {
