@@ -26,7 +26,6 @@ const DEX_HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9'
 };
 
-// Known safe Solana protocol addresses
 const SAFE_HOLDER_ADDRESSES = new Set([
   '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',
   'AVs9TA4nWDzfPJE9gGVNJMVhcQy3V9PGazuz33BfG2RA',
@@ -84,56 +83,45 @@ class Scanner {
         { timeout: 15000, headers: DEX_HEADERS }
       );
       const data = response.data || [];
-      if (data.length > 0) return data;
-
-      // Fallback to Birdeye if DexScreener returns empty
-      console.log('DexScreener empty — trying Birdeye...');
+      if (data.length > 0) {
+        console.log('DexScreener returned: ' + data.length + ' tokens');
+        return data;
+      }
+      console.log('DexScreener empty — trying fallback...');
       return await this.fetchTokenProfilesFallback();
-
     } catch (error) {
       if (error.response?.status === 429) {
-        console.log('DexScreener rate limited — trying Birdeye fallback...');
+        console.log('DexScreener rate limited — trying fallback...');
         return await this.fetchTokenProfilesFallback();
       }
       console.error('Fetch profiles error:', error.message);
-      return [];
+      return await this.fetchTokenProfilesFallback();
     }
   }
 
   async fetchTokenProfilesFallback() {
     try {
-      console.log('Fetching from Birdeye...');
+      console.log('Fetching from DexScreener pairs fallback...');
       const response = await axios.get(
-        'https://public-api.birdeye.so/defi/tokenlist' +
-        '?sort_by=v24hChangePercent' +
-        '&sort_type=desc' +
-        '&offset=0' +
-        '&limit=20' +
-        '&min_liquidity=5000',
-        {
-          timeout: 15000,
-          headers: {
-            'X-API-KEY': process.env.BIRDEYE_API_KEY || 'public',
-            'x-chain': 'solana'
-          }
-        }
+        'https://api.dexscreener.com/latest/dex/pairs/solana',
+        { timeout: 15000, headers: DEX_HEADERS }
       );
 
-      const tokens = response.data?.data?.tokens || [];
-      console.log('Birdeye returned ' + tokens.length + ' tokens');
+      const pairs = response.data?.pairs || [];
+      console.log('DexScreener pairs returned: ' + pairs.length);
 
-      // Normalize Birdeye format to match DexScreener format
-      return tokens.map(t => ({
-        tokenAddress: t.address,
-        address: t.address,
-        description: t.name || 'Unknown',
-        links: t.extensions?.twitter
-          ? [{ type: 'twitter', url: t.extensions.twitter }]
-          : []
-      }));
+      // Normalize to standard format
+      return pairs
+        .filter(p => p.baseToken?.address)
+        .map(p => ({
+          tokenAddress: p.baseToken.address,
+          address: p.baseToken.address,
+          description: p.baseToken.name || 'Unknown',
+          links: p.info?.socials || []
+        }));
 
     } catch (error) {
-      console.error('Birdeye fallback error:', error.message);
+      console.error('DexScreener pairs fallback error:', error.message);
       return [];
     }
   }
@@ -502,6 +490,7 @@ class Scanner {
     try {
       console.log('Scanning for new tokens...');
       const profiles = await this.fetchTokenProfiles();
+
       if (!profiles || profiles.length === 0) {
         console.log('No profiles returned from any source');
         return;
