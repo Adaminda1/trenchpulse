@@ -11,7 +11,7 @@ const PUMP_WS = 'wss://pumpportal.fun/api/data';
 
 const FILTERS = {
   MIN_SOL_AMOUNT: 1,
-  MIN_MARKET_CAP_SOL: 30,
+  MIN_MARKET_CAP_SOL: 10,
   REQUIRE_IMAGE: true,
   MIN_NAME_LENGTH: 3,
   BLOCK_KEYWORDS: [
@@ -72,19 +72,21 @@ class PumpScanner {
         return;
       }
 
-      // Minimum initial buy filter
+      // Minimum 1 SOL — dev must back with real money
       if (solAmount < FILTERS.MIN_SOL_AMOUNT) {
-        console.log('PumpScanner blocked low buy: ' + solAmount + ' SOL');
+        console.log('PumpScanner blocked low buy: ' +
+          solAmount + ' SOL');
         return;
       }
 
       // Minimum market cap filter
       if (marketCapSol < FILTERS.MIN_MARKET_CAP_SOL) {
-        console.log('PumpScanner blocked low mcap: ' + marketCapSol + ' SOL');
+        console.log('PumpScanner blocked low mcap: ' +
+          marketCapSol + ' SOL');
         return;
       }
 
-      // Image filter
+      // Image required
       if (FILTERS.REQUIRE_IMAGE && !data.image) {
         console.log('PumpScanner blocked: no image');
         return;
@@ -100,7 +102,7 @@ class PumpScanner {
         return;
       }
 
-      // Register token for outcome tracking
+      // Register for outcome tracking
       if (devWallet !== 'unknown') {
         registerToken(devWallet, address, name);
       }
@@ -112,12 +114,12 @@ class PumpScanner {
           ' | Rugs: ' + devRecord.rugCount
         : 'First time seen';
 
-      // Conviction rating based on SOL spent
+      // Conviction rating
       let conviction = 'LOW';
       if (solAmount >= 10) conviction = 'HIGH';
       else if (solAmount >= 3) conviction = 'MEDIUM';
 
-      // Get AI analysis
+      // AI analysis
       const aiAnalysis = await analyzeToken({
         name,
         symbol,
@@ -128,7 +130,6 @@ class PumpScanner {
         devStats
       }, 'pump');
 
-      // Build early launch alert
       const message =
         'PUMP.FUN EARLY LAUNCH\n' +
         '========================\n\n' +
@@ -155,11 +156,9 @@ class PumpScanner {
         ' | Conviction: ' + conviction
       );
 
-      // Send early launch alert immediately
       await sendTelegramAlert(message);
 
-      // Pass to scanner for deeper analysis after 30 seconds
-      // (gives DexScreener time to index the token)
+      // Pass to scanner for deep analysis after 2 minutes
       if (this.scanner) {
         setTimeout(async () => {
           await this.scanner.analyzeAndAlert({
@@ -173,7 +172,7 @@ class PumpScanner {
               ? [{ type: 'telegram', url: data.telegram }]
               : []
           });
-        }, 30000);
+        }, 120000);
       }
 
     } catch (error) {

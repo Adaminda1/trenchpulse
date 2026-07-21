@@ -68,10 +68,39 @@ function isSafeHolder(holder) {
 
 class Scanner {
   constructor() {
+    this.isRunning = false;
+    this.scanInterval = 300000;
     this.seenTokens = new Set();
     this.trackedTokens = [];
     this.executor = new AutoExecutor();
     console.log('TrenchPulse Scanner initialized');
+  }
+
+  // Primary source — trending Solana pairs from DexScreener
+  async fetchTrendingPairs() {
+    try {
+      const response = await axios.get(
+        'https://api.dexscreener.com/latest/dex/pairs/solana',
+        { timeout: 15000, headers: DEX_HEADERS }
+      );
+      const pairs = response.data?.pairs || [];
+      console.log('DexScreener trending: ' + pairs.length + ' pairs');
+      return pairs
+        .filter(p => p.baseToken?.address)
+        .map(p => ({
+          tokenAddress: p.baseToken.address,
+          address: p.baseToken.address,
+          description: p.baseToken.name || 'Unknown',
+          links: p.info?.socials || []
+        }));
+    } catch (error) {
+      if (error.response?.status === 429) {
+        console.log('DexScreener rate limited — skipping this scan');
+        return [];
+      }
+      console.error('DexScreener pairs error:', error.message);
+      return [];
+    }
   }
 
   async fetchTokenData(address) {
@@ -86,7 +115,11 @@ class Scanner {
         (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
       )[0];
     } catch (error) {
-      console.error('Fetch token data error:', error.message);
+      if (error.response?.status === 429) {
+        await new Promise(resolve => setTimeout(resolve, 30000));
+        return null;
+      }
+      console.error('Fetch token error:', error.message);
       return null;
     }
   }
@@ -156,8 +189,8 @@ class Scanner {
     return ageHours > FILTERS.MAX_TOKEN_AGE_HOURS;
   }
 
-  hasSocials(tokenData, pairData) {
-    const links = tokenData.links || [];
+  hasSocials(profile, pairData) {
+    const links = profile.links || [];
     const socials = pairData?.info?.socials || [];
     return (
       links.some(l =>
@@ -227,132 +260,132 @@ class Scanner {
     return 'RISKY';
   }
 
-  // Called by PumpScanner when a token passes initial filters
+  async processToken(profile) {
+    const address = profile.tokenAddress || profile.address;
+    if (!address || this.seenTokens.has(address)) return null;
+    this.seenTokens.add(address);
+
+    const pairData = await this.fetchTokenData(address);
+    if (!pairData) return null;
+
+    if (FILTERS.SOLANA_ONLY && pairData.chainId !== 'solana') return null;
+    if (this.isTokenTooOld(pairData.pairCreatedAt)) return null;
+
+    const liquidity = pairData.liquidity?.usd || 0;
+    if (liquidity < FILTERS.MIN_LIQUIDITY_USD) return null;
+
+    const marketCap = pairData.marketCap || 0;
+    if (marketCap > FILTERS.MAX_MARKET_CAP_USD) return null;
+
+    if (FILTERS.REQUIRED_SOCIALS &&
+        !this.hasSocials(profile, pairData)) return null;
+
+    const priceChange5m = pairData?.priceChange?.m5 || 0;
+    const priceChange1h = pairData?.priceChange?.h1 || 0;
+
+    if (priceChange5m < 0) {
+      console.log('Rejected: negative 5min price action');
+      return null;
+    }
+
+    if (priceChange1h < -15) {
+      console.log('Rejected: down 15%+ in 1h');
+      return null;
+    }
+
+    const buyVolume = pairData?.volume?.buyVolume || 0;
+    const sellVolume = pairData?.volume?.sellVolume || 0;
+    if (sellVolume > buyVolume && buyVolume > 0) {
+      console.log('Rejected: sell volume dominates');
+      return null;
+    }
+
+    const security = await this.fetchSecurityData(address);
+    const securityFlags = this.checkSecurityFlags(security);
+
+    if (securityFlags.includes('Honeypot detected')) return null;
+    if (securityFlags.includes('Token blacklisted')) return null;
+
+    const holderData = await this.fetchHolderData(address);
+    if (holderData) {
+      if (holderData.topSuspiciousPercent >
+          FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
+        console.log(
+          'Rejected: suspicious holder ' +
+          holderData.topSuspiciousPercent.toFixed(1) + '%'
+        );
+        return null;
+      }
+      if (holderData.top10SuspiciousPercent > 80) {
+        console.log('Rejected: top 10 suspicious too high');
+        return null;
+      }
+    }
+
+    const devWallet = security?.creator_address || 'unknown';
+    let devRecord = getDevRecord(devWallet);
+    const devReputation = devRecord?.reputation || 'NEW';
+
+    if (devReputation === 'BLACKLISTED') {
+      console.log('Blocked blacklisted dev');
+      return null;
+    }
+
+    if (devWallet !== 'unknown') {
+      devRecord = registerToken(
+        devWallet, address,
+        profile.description || 'Unknown'
+      );
+    }
+
+    const score = this.calculateSignalScore(
+      pairData, security, devReputation, holderData
+    );
+
+    if (score < FILTERS.MIN_SCORE) {
+      console.log('Rejected: score ' + score + ' below 60');
+      return null;
+    }
+
+    this.trackedTokens.push({
+      address,
+      devWallet,
+      initialPrice: parseFloat(pairData.priceUsd || 0),
+      trackedAt: Date.now()
+    });
+
+    return {
+      address,
+      name: pairData.baseToken?.name ||
+        profile.description || 'Unknown',
+      symbol: pairData.baseToken?.symbol || '???',
+      liquidity,
+      marketCap,
+      score,
+      rating: this.getScoreRating(score),
+      securityFlags,
+      devWallet,
+      devReputation,
+      devRecord,
+      holderData,
+      pairData
+    };
+  }
+
+  // Called by PumpScanner after 2 minutes for deep analysis
   async analyzeAndAlert(tokenData) {
     try {
-      const address = tokenData.address;
-      if (!address || this.seenTokens.has(address)) return;
-      this.seenTokens.add(address);
-
-      console.log('Analyzing: ' + tokenData.name);
-
-      // Get full market data from DexScreener
-      const pairData = await this.fetchTokenData(address);
-      if (!pairData) {
-        console.log('No pair data yet for: ' + tokenData.name);
-        return;
-      }
-
-      if (FILTERS.SOLANA_ONLY && pairData.chainId !== 'solana') return;
-      if (this.isTokenTooOld(pairData.pairCreatedAt)) return;
-
-      const liquidity = pairData.liquidity?.usd || 0;
-      if (liquidity < FILTERS.MIN_LIQUIDITY_USD) {
-        console.log('Rejected: low liquidity $' + liquidity);
-        return;
-      }
-
-      const marketCap = pairData.marketCap || 0;
-      if (marketCap > FILTERS.MAX_MARKET_CAP_USD) return;
-
-      if (FILTERS.REQUIRED_SOCIALS &&
-          !this.hasSocials(tokenData, pairData)) {
-        console.log('Rejected: no socials');
-        return;
-      }
-
-      const priceChange5m = pairData?.priceChange?.m5 || 0;
-      const priceChange1h = pairData?.priceChange?.h1 || 0;
-
-      if (priceChange5m < 0) {
-        console.log('Rejected: negative 5min price action');
-        return;
-      }
-
-      if (priceChange1h < -15) {
-        console.log('Rejected: down 15%+ in 1 hour');
-        return;
-      }
-
-      const buyVolume = pairData?.volume?.buyVolume || 0;
-      const sellVolume = pairData?.volume?.sellVolume || 0;
-      if (sellVolume > buyVolume && buyVolume > 0) {
-        console.log('Rejected: sell volume dominates');
-        return;
-      }
-
-      const security = await this.fetchSecurityData(address);
-      const securityFlags = this.checkSecurityFlags(security);
-
-      if (securityFlags.includes('Honeypot detected')) return;
-      if (securityFlags.includes('Token blacklisted')) return;
-
-      const holderData = await this.fetchHolderData(address);
-      if (holderData) {
-        if (holderData.topSuspiciousPercent >
-            FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
-          console.log(
-            'Rejected: suspicious holder ' +
-            holderData.topSuspiciousPercent.toFixed(1) + '%'
-          );
-          return;
-        }
-        if (holderData.top10SuspiciousPercent > 80) {
-          console.log('Rejected: top 10 suspicious too high');
-          return;
-        }
-      }
-
-      const devWallet = security?.creator_address ||
-        tokenData.devWallet || 'unknown';
-      let devRecord = getDevRecord(devWallet);
-      const devReputation = devRecord?.reputation || 'NEW';
-
-      if (devReputation === 'BLACKLISTED') {
-        console.log('Blocked blacklisted dev');
-        return;
-      }
-
-      if (devWallet !== 'unknown') {
-        devRecord = registerToken(
-          devWallet, address, tokenData.name
-        );
-      }
-
-      const score = this.calculateSignalScore(
-        pairData, security, devReputation, holderData
-      );
-
-      if (score < FILTERS.MIN_SCORE) {
-        console.log('Rejected: score ' + score + ' below 60');
-        return;
-      }
-
-      this.trackedTokens.push({
-        address,
-        devWallet,
-        initialPrice: parseFloat(pairData.priceUsd || 0),
-        trackedAt: Date.now()
+      console.log('Deep analysis: ' + tokenData.name);
+      const token = await this.processToken({
+        tokenAddress: tokenData.address,
+        address: tokenData.address,
+        description: tokenData.name,
+        links: tokenData.links || []
       });
-
-      const token = {
-        address,
-        name: pairData.baseToken?.name || tokenData.name,
-        symbol: pairData.baseToken?.symbol || tokenData.symbol,
-        liquidity,
-        marketCap,
-        score,
-        rating: this.getScoreRating(score),
-        securityFlags,
-        devWallet,
-        devReputation,
-        devRecord,
-        holderData,
-        pairData
-      };
+      if (!token) return;
 
       console.log(
-        'SIGNAL: ' + token.name +
+        'Deep signal: ' + token.name +
         ' | Score: ' + token.score +
         ' | Dev: ' + token.devReputation
       );
@@ -390,6 +423,73 @@ class Scanner {
 
     } catch (error) {
       console.error('analyzeAndAlert error:', error.message);
+    }
+  }
+
+  async scanTrendingTokens() {
+    try {
+      console.log('Scanning DexScreener trending pairs...');
+      const profiles = await this.fetchTrendingPairs();
+
+      if (!profiles || profiles.length === 0) {
+        console.log('No trending pairs returned');
+        return;
+      }
+
+      console.log('Processing ' + profiles.length + ' pairs...');
+
+      for (const profile of profiles.slice(0, 20)) {
+        const token = await this.processToken(profile);
+        if (!token) continue;
+
+        console.log(
+          'Trending signal: ' + token.name +
+          ' | Score: ' + token.score +
+          ' | Dev: ' + token.devReputation +
+          (token.holderData?.hasInstitutionalSupport
+            ? ' | INSTITUTIONAL' : '')
+        );
+
+        const aiAnalysis = await analyzeToken({
+          name: token.name,
+          symbol: token.symbol,
+          score: token.score,
+          rating: token.rating,
+          price: parseFloat(
+            token.pairData?.priceUsd || 0
+          ).toFixed(8),
+          priceChange: token.pairData?.priceChange?.h1 || 0,
+          liquidity: token.liquidity.toLocaleString(),
+          marketCap: token.marketCap.toLocaleString(),
+          volume: (
+            token.pairData?.volume?.h1 || 0
+          ).toLocaleString(),
+          buys: token.pairData?.txns?.h1?.buys || 0,
+          sells: token.pairData?.txns?.h1?.sells || 0,
+          securityStatus: token.securityFlags.length === 0
+            ? 'CLEAN' : token.securityFlags.join(', '),
+          devReputation: token.devReputation,
+          institutionalSupport: token.holderData
+            ?.hasInstitutionalSupport
+            ? token.holderData.largeInstitutionalHolders
+                .map(h => h.tag + ' ' + h.percent + '%').join(', ')
+            : 'None'
+        }, 'dexscreener');
+
+        const message = this.formatAlert(token, aiAnalysis);
+        await sendTelegramAlert(message);
+
+        const isAutoTrade = token.score >= 80 &&
+          token.devReputation === 'ALPHA';
+        await this.executor.processSignal(token, isAutoTrade);
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      await this.checkTrackedOutcomes();
+
+    } catch (error) {
+      console.error('Scanner error:', error.message);
     }
   }
 
@@ -480,20 +580,31 @@ class Scanner {
       devLabel + '\n' +
       devStats + '\n\n' +
       (aiAnalysis ? 'AI ANALYSIS\n' + aiAnalysis + '\n\n' : '') +
-      'Chart: https://dexscreener.com/solana/' + token.address + '\n\n' +
+      'Chart: https://dexscreener.com/solana/' +
+      token.address + '\n\n' +
       'TrenchPulse Scanner'
     );
   }
 
   start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
     this.executor.start();
-    console.log('TrenchPulse Scanner ready');
+    console.log('TrenchPulse Scanner started');
+
+    // Scan trending pairs every 5 minutes
+    this.scanTrendingTokens();
+    setInterval(() => this.scanTrendingTokens(), this.scanInterval);
 
     // Check outcomes every 6 hours
-    setInterval(() => this.checkTrackedOutcomes(), 6 * 60 * 60 * 1000);
+    setInterval(
+      () => this.checkTrackedOutcomes(),
+      6 * 60 * 60 * 1000
+    );
   }
 
   stop() {
+    this.isRunning = false;
     console.log('TrenchPulse Scanner stopped');
   }
 }
