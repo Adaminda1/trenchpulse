@@ -80,19 +80,19 @@ class Scanner {
   async fetchTrendingPairs() {
     try {
       const response = await axios.get(
-        'https://api.dexscreener.com/latest/dex/pairs/solana',
+        'https://api.dexscreener.com/token-boosts/latest/v1',
         { timeout: 15000, headers: DEX_HEADERS }
       );
-      const pairs = response.data?.pairs || [];
-      console.log('DexScreener trending: ' + pairs.length + ' pairs');
-      return pairs
-        .filter(p => p.baseToken?.address)
-        .map(p => ({
-          tokenAddress: p.baseToken.address,
-          address: p.baseToken.address,
-          description: p.baseToken.name || 'Unknown',
-          links: p.info?.socials || []
-        }));
+      const tokens = response.data || [];
+console.log('DexScreener boosts: ' + tokens.length + ' tokens');
+return tokens
+  .filter(t => t.tokenAddress)
+  .map(t => ({
+    tokenAddress: t.tokenAddress,
+    address: t.tokenAddress,
+    description: t.description || 'Unknown',
+    links: t.links || []
+  }));
     } catch (error) {
       if (error.response?.status === 429) {
         console.log('DexScreener rate limited — skipping this scan');
