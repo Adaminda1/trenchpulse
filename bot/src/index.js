@@ -1,67 +1,29 @@
 require('dotenv').config();
 const http = require('http');
 const https = require('https');
-const TelegramBotLib = require('node-telegram-bot-api');
-const TelegramBot = TelegramBotLib.default || TelegramBotLib;
 const { Scanner } = require('./listeners/scanner');
 const { PumpScanner } = require('./listeners/pumpscanner');
-const { DexWebhook } = require('./listeners/dexwebhook');
 
 // Initialize scanners
 const scanner = new Scanner();
 const pumpScanner = new PumpScanner(scanner);
-const dexWebhook = new DexWebhook(scanner);
 
-// HTTP server — handles health check AND DexScreener webhooks
-const server = http.createServer(async (req, res) => {
-
-  // Health check endpoint
-  if (req.method === 'GET' && req.url === '/') {
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache'
-    });
-    res.end(JSON.stringify({
-      status: 'alive',
-      service: 'TrenchPulse',
-      timestamp: new Date().toISOString(),
-      uptime: Math.floor(process.uptime())
-    }));
-    return;
-  }
-
-  // DexScreener webhook endpoint
-  if (req.method === 'POST' && req.url === '/webhook/dexscreener') {
-    let body = '';
-
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-
-    req.on('end', async () => {
-      try {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ received: true }));
-
-        const data = JSON.parse(body);
-        console.log('DexScreener webhook received');
-        await dexWebhook.handleWebhookData(data);
-
-      } catch (error) {
-        console.error('Webhook parse error:', error.message);
-      }
-    });
-    return;
-  }
-
-  // 404 for everything else
-  res.writeHead(404);
-  res.end('Not found');
+// Health check server
+const server = http.createServer((req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-cache'
+  });
+  res.end(JSON.stringify({
+    status: 'alive',
+    service: 'TrenchPulse',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime())
+  }));
 });
 
 server.listen(process.env.PORT || 3000, () => {
-  console.log('TrenchPulse server running on port ' +
-    (process.env.PORT || 3000));
+  console.log('Health check server running');
 });
 
 console.log('TRENCHPULSE INITIALIZED');
@@ -70,84 +32,143 @@ console.log('Solana RPC connected');
 console.log('Telegram alerts enabled');
 console.log('Scanning for new tokens...');
 
-// Telegram bot for commands
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
-  polling: true
-});
+// Telegram bot — separate from node-telegram-bot-api
+// Using raw API to avoid polling conflicts
+const axios = require('axios');
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+let lastUpdateId = 0;
 
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id.toString();
-  const yourChatId = process.env.TELEGRAM_CHAT_ID;
-  if (chatId !== yourChatId) return;
+async function sendMessage(chatId, text) {
+  try {
+    await axios.post(
+      'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/sendMessage',
+      { chat_id: chatId, text: text }
+    );
+  } catch (error) {
+    console.error('Send message error:', error.message);
+  }
+}
 
-  const text = msg.text || '';
+async function pollTelegram() {
+  try {
+    const response = await axios.get(
+      'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/getUpdates',
+      {
+        params: {
+          offset: lastUpdateId + 1,
+          timeout: 30,
+          allowed_updates: ['message']
+        },
+        timeout: 35000
+      }
+    );
 
-  if (text.startsWith('BUY ') || text.startsWith('SKIP ')) {
-    const handled = await scanner.executor.handleApprovalReply(text);
-    if (!handled) {
-      bot.sendMessage(chatId, 'Approval not found or expired.');
+    const updates = response.data?.result || [];
+
+    for (const update of updates) {
+      lastUpdateId = update.update_id;
+      const msg = update.message;
+      if (!msg) continue;
+
+      const chatId = msg.chat.id.toString();
+      const text = msg.text || '';
+
+      // Only respond to your chat
+      if (chatId !== TELEGRAM_CHAT_ID) continue;
+
+      console.log('Telegram message received: ' + text);
+
+      if (text.startsWith('BUY ') || text.startsWith('SKIP ')) {
+        const handled = await scanner.executor
+          .handleApprovalReply(text);
+        if (!handled) {
+          await sendMessage(chatId, 'Approval not found or expired.');
+        }
+        continue;
+      }
+
+      switch (text) {
+        case '/start':
+          await sendMessage(chatId,
+            'TrenchPulse is LIVE\n\n' +
+            'Scanning Pump.fun and DexScreener 24/7\n\n' +
+            'Commands:\n' +
+            '/status — Bot status\n' +
+            '/positions — Open trades\n' +
+            '/pause — Pause trading\n' +
+            '/resume — Resume trading\n' +
+            '/help — All commands'
+          );
+          break;
+
+        case '/status':
+          await sendMessage(chatId,
+            'TRENCHPULSE STATUS\n' +
+            '========================\n\n' +
+            'Status: ONLINE\n' +
+            'Auto Trade: ' + process.env.AUTO_TRADE_ENABLED + '\n' +
+            'Open Positions: ' +
+            scanner.executor.positions.size + '\n' +
+            'Daily Loss: ' +
+            scanner.executor.dailyLoss.toFixed(4) + ' SOL\n' +
+            'Uptime: ' +
+            Math.floor(process.uptime() / 60) + ' minutes\n\n' +
+            'TrenchPulse'
+          );
+          break;
+
+        case '/positions':
+          await sendMessage(chatId,
+            scanner.executor.getPositionsSummary()
+          );
+          break;
+
+        case '/pause':
+          process.env.AUTO_TRADE_ENABLED = 'false';
+          await sendMessage(chatId, 'Auto trading paused.');
+          break;
+
+        case '/resume':
+          process.env.AUTO_TRADE_ENABLED = 'true';
+          await sendMessage(chatId, 'Auto trading resumed.');
+          break;
+
+        case '/help':
+          await sendMessage(chatId,
+            'TRENCHPULSE COMMANDS\n' +
+            '========================\n\n' +
+            'BUY xxxxxxxx — Approve trade\n' +
+            'SKIP xxxxxxxx — Reject trade\n' +
+            '/start — Welcome message\n' +
+            '/status — Bot status\n' +
+            '/positions — Open positions\n' +
+            '/pause — Pause auto trading\n' +
+            '/resume — Resume auto trading\n' +
+            '/help — Show commands\n\n' +
+            'TrenchPulse'
+          );
+          break;
+
+        default:
+          break;
+      }
     }
-    return;
+  } catch (error) {
+    console.error('Telegram poll error:', error.message);
   }
 
-  switch (text) {
-    case '/positions':
-      bot.sendMessage(chatId,
-        scanner.executor.getPositionsSummary()
-      );
-      break;
+  // Poll again after 1 second
+  setTimeout(pollTelegram, 1000);
+}
 
-    case '/pause':
-      process.env.AUTO_TRADE_ENABLED = 'false';
-      bot.sendMessage(chatId, 'Auto trading paused.');
-      break;
+// Start Telegram polling
+pollTelegram();
+console.log('Telegram polling started');
 
-    case '/resume':
-      process.env.AUTO_TRADE_ENABLED = 'true';
-      bot.sendMessage(chatId, 'Auto trading resumed.');
-      break;
-
-    case '/status':
-      bot.sendMessage(chatId,
-        'TRENCHPULSE STATUS\n' +
-        '========================\n\n' +
-        'Auto Trade: ' + process.env.AUTO_TRADE_ENABLED + '\n' +
-        'Open Positions: ' +
-        scanner.executor.positions.size + '\n' +
-        'Daily Loss: ' +
-        scanner.executor.dailyLoss.toFixed(4) + ' SOL\n' +
-        'Uptime: ' + Math.floor(process.uptime() / 60) +
-        ' minutes\n\n' +
-        'TrenchPulse'
-      );
-      break;
-
-    case '/help':
-      bot.sendMessage(chatId,
-        'TRENCHPULSE COMMANDS\n' +
-        '========================\n\n' +
-        'BUY xxxxxxxx — Approve trade\n' +
-        'SKIP xxxxxxxx — Reject trade\n' +
-        '/positions — Open positions\n' +
-        '/status — Bot status\n' +
-        '/pause — Pause auto trading\n' +
-        '/resume — Resume auto trading\n' +
-        '/help — Show commands\n\n' +
-        'TrenchPulse'
-      );
-      break;
-
-    default:
-      break;
-  }
-});
-
-// Start Pump.fun scanner
-pumpScanner.start();
-
-// Start DexScreener polling as backup
-// (webhook is primary, polling is fallback)
+// Start scanners
 scanner.start();
+pumpScanner.start();
 
 // Self ping every 10 minutes
 const RENDER_URL = process.env.RENDER_URL ||
@@ -167,7 +188,6 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 console.log('Self-ping active every 10 minutes');
-console.log('Webhook URL: ' + RENDER_URL + '/webhook/dexscreener');
 
 // Graceful shutdown
 process.on('SIGINT', () => {
