@@ -37,6 +37,7 @@ console.log('Scanning for new tokens...');
 const axios = require('axios');
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+console.log('Bot started — watching chat ID: ' + TELEGRAM_CHAT_ID);
 let lastUpdateId = 0;
 
 async function sendMessage(chatId, text) {
@@ -79,10 +80,13 @@ async function pollTelegram() {
       const chatId = msg.chat.id.toString();
       const text = msg.text || '';
 
-      // Only respond to your chat
-      if (chatId !== TELEGRAM_CHAT_ID &&
-    chatId !== String(TELEGRAM_CHAT_ID)) {
-  console.log('Message from unknown chat: ' + chatId);
+    // Only respond to your chat
+const yourId = String(TELEGRAM_CHAT_ID).trim();
+const incomingId = String(chatId).trim();
+
+if (incomingId !== yourId) {
+  console.log('Ignored chat: ' + incomingId + 
+    ' expected: ' + yourId);
   continue;
 }
 
