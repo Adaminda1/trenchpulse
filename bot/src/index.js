@@ -65,6 +65,11 @@ async function pollTelegram() {
     );
 
     const updates = response.data?.result || [];
+    if (updates.length > 0) {
+  console.log('Telegram update received from chat: ' +
+    updates[0]?.message?.chat?.id);
+  console.log('Expected chat ID: ' + TELEGRAM_CHAT_ID);
+}
 
     for (const update of updates) {
       lastUpdateId = update.update_id;
@@ -75,7 +80,11 @@ async function pollTelegram() {
       const text = msg.text || '';
 
       // Only respond to your chat
-      if (chatId !== TELEGRAM_CHAT_ID) continue;
+      if (chatId !== TELEGRAM_CHAT_ID &&
+    chatId !== String(TELEGRAM_CHAT_ID)) {
+  console.log('Message from unknown chat: ' + chatId);
+  continue;
+}
 
       console.log('Telegram message received: ' + text);
 
