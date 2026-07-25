@@ -66,6 +66,16 @@ function isSafeHolder(holder) {
   return SAFE_HOLDER_LABELS.some(label => tag.includes(label));
 }
 
+// FIX: Parse holder percent defensively (handles both decimals and percentages)
+function parseHolderPercent(percentValue) {
+  if (!percentValue) return 0;
+  const num = parseFloat(percentValue);
+  if (isNaN(num)) return 0;
+  // If value is already large (>1), assume it's a percentage
+  // If small (<1), assume it's a decimal and multiply by 100
+  return num > 1 ? num : num * 100;
+}
+
 class Scanner {
   constructor() {
     this.isRunning = false;
@@ -128,12 +138,12 @@ return tokens
     try {
       const response = await axios.get(
         'https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=' + address,
-        { timeout: 15000 }
+        { timeout: 8000 } // FIX: Add timeout to prevent hanging
       );
       return response.data?.result?.[address.toLowerCase()] || null;
     } catch (error) {
       console.error('Fetch security error:', error.message);
-      return null;
+      return null; // Will be handled as "Security data unavailable"
     }
   }
 
@@ -141,7 +151,7 @@ return tokens
     try {
       const response = await axios.get(
         'https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=' + address,
-        { timeout: 15000 }
+        { timeout: 8000 } // FIX: Add timeout
       );
       const result = response.data?.result?.[address.toLowerCase()];
       if (!result) return null;
@@ -152,21 +162,22 @@ return tokens
       const safeHolders = holders.filter(h => isSafeHolder(h));
       const suspiciousHolders = holders.filter(h => !isSafeHolder(h));
 
+      // FIX: Use defensive percent parsing
       const topSuspiciousPercent = suspiciousHolders.length > 0
-        ? parseFloat(suspiciousHolders[0]?.percent || 0) * 100
+        ? parseHolderPercent(suspiciousHolders[0]?.percent)
         : 0;
 
       const top10SuspiciousPercent = suspiciousHolders
         .slice(0, 10)
         .reduce((sum, h) =>
-          sum + parseFloat(h?.percent || 0) * 100, 0
+          sum + parseHolderPercent(h?.percent), 0
         );
 
       const largeInstitutionalHolders = safeHolders
-        .filter(h => parseFloat(h?.percent || 0) * 100 > 5)
+        .filter(h => parseHolderPercent(h?.percent) > 5)
         .map(h => ({
           tag: h.tag || 'Known Protocol',
-          percent: (parseFloat(h?.percent || 0) * 100).toFixed(1)
+          percent: parseHolderPercent(h?.percent).toFixed(1)
         }));
 
       return {
@@ -179,7 +190,7 @@ return tokens
 
     } catch (error) {
       console.error('Fetch holder error:', error.message);
-      return null;
+      return null; // Will trigger "no holder data" check
     }
   }
 
@@ -306,20 +317,27 @@ return tokens
     if (securityFlags.includes('Honeypot detected')) return null;
     if (securityFlags.includes('Token blacklisted')) return null;
 
+    // FIX: ALWAYS fetch and check holder data BEFORE score calculation
     const holderData = await this.fetchHolderData(address);
-    if (holderData) {
-      if (holderData.topSuspiciousPercent >
-          FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
-        console.log(
-          'Rejected: suspicious holder ' +
-          holderData.topSuspiciousPercent.toFixed(1) + '%'
-        );
-        return null;
-      }
-      if (holderData.top10SuspiciousPercent > 80) {
-        console.log('Rejected: top 10 suspicious too high');
-        return null;
-      }
+    
+    // FIX: Reject if NO holder data (can't verify, fail safe)
+    if (!holderData) {
+      console.log('Rejected: no holder data available — cannot verify top holders');
+      return null;
+    }
+
+    // FIX: Strict top holder check — if we got data, enforce the 20% limit
+    if (holderData.topSuspiciousPercent > FILTERS.MAX_TOP_SUSPICIOUS_HOLDER_PERCENT) {
+      console.log(
+        'Rejected: suspicious holder ' +
+        holderData.topSuspiciousPercent.toFixed(1) + '%'
+      );
+      return null;
+    }
+
+    if (holderData.top10SuspiciousPercent > 80) {
+      console.log('Rejected: top 10 suspicious too high');
+      return null;
     }
 
     const devWallet = security?.creator_address || 'unknown';

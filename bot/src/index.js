@@ -44,7 +44,8 @@ async function sendMessage(chatId, text) {
   try {
     await axios.post(
       'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/sendMessage',
-      { chat_id: chatId, text: text }
+      { chat_id: chatId, text: text },
+      { timeout: 10000 } // FIX: Add timeout to prevent message sending from hanging
     );
   } catch (error) {
     console.error('Send message error:', error.message);
@@ -93,17 +94,21 @@ if (incomingId !== yourId) {
       console.log('Telegram message received: ' + text);
 
       if (text.startsWith('BUY ') || text.startsWith('SKIP ')) {
-        const handled = await scanner.executor
-          .handleApprovalReply(text);
-        if (!handled) {
-          await sendMessage(chatId, 'Approval not found or expired.');
-        }
+        // FIX: Don't await this — fire and forget so Telegram doesn't hang
+        scanner.executor.handleApprovalReply(text)
+          .then(handled => {
+            if (!handled) {
+              sendMessage(chatId, 'Approval not found or expired.');
+            }
+          })
+          .catch(err => console.error('Approval error:', err.message));
         continue;
       }
 
       switch (text) {
         case '/start':
-          await sendMessage(chatId,
+          // FIX: Don't await — fire and forget
+          sendMessage(chatId,
             'TrenchPulse is LIVE\n\n' +
             'Scanning Pump.fun and DexScreener 24/7\n\n' +
             'Commands:\n' +
@@ -112,11 +117,12 @@ if (incomingId !== yourId) {
             '/pause — Pause trading\n' +
             '/resume — Resume trading\n' +
             '/help — All commands'
-          );
+          ).catch(err => console.error('Start message error:', err.message));
           break;
 
         case '/status':
-          await sendMessage(chatId,
+          // FIX: /status is FAST and NEVER BLOCKS
+          sendMessage(chatId,
             'TRENCHPULSE STATUS\n' +
             '========================\n\n' +
             'Status: ONLINE\n' +
@@ -128,27 +134,29 @@ if (incomingId !== yourId) {
             'Uptime: ' +
             Math.floor(process.uptime() / 60) + ' minutes\n\n' +
             'TrenchPulse'
-          );
+          ).catch(err => console.error('Status message error:', err.message));
           break;
 
         case '/positions':
-          await sendMessage(chatId,
+          sendMessage(chatId,
             scanner.executor.getPositionsSummary()
-          );
+          ).catch(err => console.error('Positions error:', err.message));
           break;
 
         case '/pause':
           process.env.AUTO_TRADE_ENABLED = 'false';
-          await sendMessage(chatId, 'Auto trading paused.');
+          sendMessage(chatId, 'Auto trading paused.')
+            .catch(err => console.error('Pause error:', err.message));
           break;
 
         case '/resume':
           process.env.AUTO_TRADE_ENABLED = 'true';
-          await sendMessage(chatId, 'Auto trading resumed.');
+          sendMessage(chatId, 'Auto trading resumed.')
+            .catch(err => console.error('Resume error:', err.message));
           break;
 
         case '/help':
-          await sendMessage(chatId,
+          sendMessage(chatId,
             'TRENCHPULSE COMMANDS\n' +
             '========================\n\n' +
             'BUY xxxxxxxx — Approve trade\n' +
@@ -160,7 +168,7 @@ if (incomingId !== yourId) {
             '/resume — Resume auto trading\n' +
             '/help — Show commands\n\n' +
             'TrenchPulse'
-          );
+          ).catch(err => console.error('Help error:', err.message));
           break;
 
         default:
@@ -175,7 +183,7 @@ if (incomingId !== yourId) {
   setTimeout(pollTelegram, 1000);
 }
 
-// Start Telegram polling
+// Start Telegram polling (non-blocking)
 pollTelegram();
 console.log('Telegram polling started');
 

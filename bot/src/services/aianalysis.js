@@ -9,7 +9,12 @@ async function analyzeToken(tokenData, source) {
   try {
     const prompt = buildPrompt(tokenData, source);
 
-    const completion = await groq.chat.completions.create({
+    // ADD TIMEOUT: 5 second max for Groq call
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Groq API timeout after 5s')), 5000)
+    );
+
+    const completionPromise = groq.chat.completions.create({
       model: 'llama-3.1-8b-instant',
       max_tokens: 300,
       temperature: 0.3,
@@ -25,10 +30,16 @@ async function analyzeToken(tokenData, source) {
       ]
     });
 
+    const completion = await Promise.race([completionPromise, timeoutPromise]);
     return completion.choices[0]?.message?.content || null;
 
   } catch (error) {
-    console.error('AI analysis error:', error.message);
+    // Log timeout but don't block — return null gracefully
+    if (error.message.includes('timeout')) {
+      console.error('Groq timeout: signal sent without AI analysis');
+    } else {
+      console.error('AI analysis error:', error.message);
+    }
     return null;
   }
 }

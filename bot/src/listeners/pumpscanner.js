@@ -28,7 +28,11 @@ class PumpScanner {
     this.ws = null;
     this.isRunning = false;
     this.seenTokens = new Set();
-    this.reconnectDelay = 5000;
+    this.seenTokensTimestamp = new Map(); // Track when tokens were seen for cleanup
+    this.reconnectDelay = 5000; // Start at 5s
+    this.maxReconnectDelay = 60000; // Cap at 60s
+    this.heartbeatInterval = null;
+    this.connectionTimeout = null;
     console.log('PumpScanner initialized');
   }
 
@@ -47,11 +51,30 @@ class PumpScanner {
     return true;
   }
 
+  // FIX: Clean up old seen tokens after 24 hours to prevent memory leak
+  cleanupSeenTokens() {
+    const now = Date.now();
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    
+    for (const [address, timestamp] of this.seenTokensTimestamp) {
+      if (now - timestamp > maxAge) {
+        this.seenTokens.delete(address);
+        this.seenTokensTimestamp.delete(address);
+      }
+    }
+  }
+
   async handleNewToken(data) {
     try {
       const address = data.mint;
       if (!address || this.seenTokens.has(address)) return;
       this.seenTokens.add(address);
+      this.seenTokensTimestamp.set(address, Date.now()); // Track when seen
+      
+      // Clean up old tokens every 100 new tokens
+      if (this.seenTokens.size % 100 === 0) {
+        this.cleanupSeenTokens();
+      }
 
       const name = data.name || 'Unknown';
       const symbol = data.symbol || '???';
@@ -119,16 +142,22 @@ class PumpScanner {
       if (solAmount >= 10) conviction = 'HIGH';
       else if (solAmount >= 3) conviction = 'MEDIUM';
 
-      // AI analysis
-      const aiAnalysis = await analyzeToken({
-        name,
-        symbol,
-        solAmount: solAmount.toFixed(4),
-        marketCapSol: marketCapSol.toFixed(2),
-        conviction,
-        devReputation,
-        devStats
-      }, 'pump');
+      // AI analysis with timeout protection
+      let aiAnalysis = null;
+      try {
+        aiAnalysis = await analyzeToken({
+          name,
+          symbol,
+          solAmount: solAmount.toFixed(4),
+          marketCapSol: marketCapSol.toFixed(2),
+          conviction,
+          devReputation,
+          devStats
+        }, 'pump');
+      } catch (error) {
+        console.error('PumpScanner AI analysis error:', error.message);
+        // Continue without AI analysis
+      }
 
       const message =
         'PUMP.FUN EARLY LAUNCH\n' +
@@ -180,17 +209,71 @@ class PumpScanner {
     }
   }
 
+  // FIX: Start heartbeat to keep connection alive
+  startHeartbeat() {
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    
+    this.heartbeatInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.ping();
+          console.log('Pump.fun WebSocket ping sent');
+        } catch (error) {
+          console.error('Ping error:', error.message);
+        }
+      }
+    }, 30000); // Ping every 30 seconds
+  }
+
+  // FIX: Stop heartbeat when disconnecting
+  stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  // FIX: Clear connection timeout
+  clearConnectionTimeout() {
+    if (this.connectionTimeout) {
+      clearTimeout(this.connectionTimeout);
+      this.connectionTimeout = null;
+    }
+  }
+
   connect() {
     try {
-      console.log('Connecting to Pump.fun WebSocket...');
+      console.log('Connecting to Pump.fun WebSocket... (reconnect delay: ' +
+        (this.reconnectDelay / 1000) + 's)');
       this.ws = new WebSocket(PUMP_WS);
 
+      // FIX: Add connection timeout (10 seconds to connect or fail)
+      this.connectionTimeout = setTimeout(() => {
+        if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
+          console.error('Pump.fun connection timeout after 10s');
+          this.ws.close();
+        }
+      }, 10000);
+
       this.ws.on('open', () => {
-        console.log('Pump.fun WebSocket connected');
-        this.ws.send(JSON.stringify({
-          method: 'subscribeNewToken'
-        }));
-        console.log('Subscribed to new token launches');
+        console.log('Pump.fun WebSocket connected ✓');
+        this.clearConnectionTimeout();
+        
+        // FIX: Start heartbeat immediately after connection
+        this.startHeartbeat();
+        
+        // Send subscription
+        try {
+          this.ws.send(JSON.stringify({
+            method: 'subscribeNewToken'
+          }));
+          console.log('Subscribed to new token launches');
+        } catch (error) {
+          console.error('Failed to send subscription:', error.message);
+        }
+        
+        // FIX: Reset reconnect delay on successful connection
+        this.reconnectDelay = 5000;
       });
 
       this.ws.on('message', async (data) => {
@@ -200,24 +283,46 @@ class PumpScanner {
             await this.handleNewToken(parsed);
           }
         } catch (error) {
-          // Ignore parse errors silently
+          // Ignore parse errors silently — not all messages are token launches
         }
       });
 
+      // FIX: Handle WebSocket pong response
+      this.ws.on('pong', () => {
+        console.log('Pump.fun WebSocket pong received');
+      });
+
       this.ws.on('close', () => {
-        console.log('Pump.fun disconnected — reconnecting in 5s...');
+        console.log('Pump.fun disconnected — will reconnect in ' +
+          (this.reconnectDelay / 1000) + 's...');
+        this.clearConnectionTimeout();
+        this.stopHeartbeat();
+        
+        // FIX: Exponential backoff on reconnect
         if (this.isRunning) {
           setTimeout(() => this.connect(), this.reconnectDelay);
+          // Increase delay for next attempt (up to 60s max)
+          this.reconnectDelay = Math.min(
+            this.reconnectDelay * 1.5,
+            this.maxReconnectDelay
+          );
         }
       });
 
       this.ws.on('error', (error) => {
         console.error('PumpScanner WebSocket error:', error.message);
+        this.clearConnectionTimeout();
+        this.stopHeartbeat();
       });
 
     } catch (error) {
       console.error('PumpScanner connect error:', error.message);
+      this.clearConnectionTimeout();
+      this.stopHeartbeat();
+      
       if (this.isRunning) {
+        console.log('Retrying connection in ' +
+          (this.reconnectDelay / 1000) + 's...');
         setTimeout(() => this.connect(), this.reconnectDelay);
       }
     }
@@ -226,13 +331,18 @@ class PumpScanner {
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
+    this.reconnectDelay = 5000; // Reset to 5s on fresh start
     console.log('PumpScanner started');
     this.connect();
   }
 
   stop() {
     this.isRunning = false;
-    if (this.ws) this.ws.close();
+    this.clearConnectionTimeout();
+    this.stopHeartbeat();
+    if (this.ws) {
+      this.ws.close();
+    }
     console.log('PumpScanner stopped');
   }
 }
