@@ -7,22 +7,21 @@ const {
   getReputationEmoji
 } = require('../data/devreputation');
 
-// Raydium API endpoints
-const RAYDIUM_API = 'https://api.raydium.io/v2';
-const RAYDIUM_FUSION_API = 'https://fusion-api-v2.raydium.io';
+// Use DexScreener for Raydium pairs (reliable, no auth needed)
+const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex/pairs/solana';
 
 const FILTERS = {
   // NEW POOL DETECTION
   MIN_LIQUIDITY_USD: 1000,        // Real liquidity, not test
   MAX_LIQUIDITY_USD: 10000000,    // Avoid whale projects
   MIN_VOLUME_24H: 500,             // Some activity
-  MAX_TOKEN_AGE_MINUTES: 60,       // Caught early
+  MAX_TOKEN_AGE_MINUTES: 120,      // Caught within 2 hours
   MIN_HOLDER_COUNT: 10,            // Some distribution
 
   // QUALITY FILTERS
-  REQUIRE_WEBSITE: false,          // Not all day-1 projects have sites
-  REQUIRE_TWITTER: false,          // Early projects may not have Twitter yet
-  MAX_DEV_CONCENTRATION: 30,       // Dev shouldn't hold >30%
+  REQUIRE_WEBSITE: false,
+  REQUIRE_TWITTER: false,
+  MAX_DEV_CONCENTRATION: 30,
   
   BLOCK_KEYWORDS: [
     'test', 'scam', 'fake', 'rug', 'honey',
@@ -35,11 +34,10 @@ class RaydiumScanner {
   constructor(scanner) {
     this.scanner = scanner;
     this.isRunning = false;
-    this.scanInterval = 60000; // Scan every 60 seconds for new pools
+    this.scanInterval = 120000; // Scan every 2 minutes for new Raydium pools
     this.seenPools = new Set();
     this.seenPoolsTimestamp = new Map();
-    this.lastScanTime = 0;
-    console.log('RaydiumScanner initialized');
+    console.log('RaydiumScanner initialized — DexScreener Raydium endpoint');
   }
 
   containsBlockedKeyword(text) {
@@ -57,28 +55,24 @@ class RaydiumScanner {
     return true;
   }
 
-  // Detect rug warning signs for new pools
-  detectRugWarnings(poolData, tokenData) {
+  // Detect rug warning signs
+  detectRugWarnings(poolData) {
     const warnings = [];
 
-    // Extreme dev concentration
-    if (tokenData.devHoldPercent > 40) {
-      warnings.push('high-dev-concentration');
+    const liquidity = poolData.liquidity?.usd || 0;
+    const volume = poolData.volume?.h24 || 0;
+
+    // Very new with high liquidity = whale pump
+    if (poolData.pairCreatedAt && volume > 100000 && liquidity > 500000) {
+      const ageMinutes = (Date.now() - poolData.pairCreatedAt) / (1000 * 60);
+      if (ageMinutes < 30) {
+        warnings.push('instant-whale-liquidity');
+      }
     }
 
-    // Very new with high liquidity = possible whale pump
-    if (poolData.ageMinutes < 5 && poolData.liquidityUsd > 100000) {
-      warnings.push('instant-whale-liquidity');
-    }
-
-    // No volume on new pool = illiquid
-    if (poolData.volume24h < 100) {
-      warnings.push('no-volume');
-    }
-
-    // Few holders = concentrated
-    if (tokenData.holderCount < 20) {
-      warnings.push('low-holder-count');
+    // No volume = illiquid
+    if (volume < 100) {
+      warnings.push('low-volume');
     }
 
     return warnings;
@@ -96,104 +90,55 @@ class RaydiumScanner {
     }
   }
 
-  async fetchPoolDetails(poolId) {
+  async fetchRaydiumPairs() {
     try {
-      // Get pool details from Raydium
+      // Get latest Raydium pairs from DexScreener
+      // DexScreener shows both Pump.fun and Raydium, we filter by liquidity
       const response = await axios.get(
-        RAYDIUM_API + '/pools?ids=' + poolId,
-        { timeout: 8000 }
+        DEXSCREENER_API + '?limit=50',
+        { 
+          timeout: 10000,
+          headers: {
+            'User-Agent': 'TrenchPulse/1.0'
+          }
+        }
       );
 
-      const pool = response.data?.data?.[0];
-      if (!pool) return null;
+      const pairs = response.data?.pairs || [];
+      console.log('DexScreener Raydium pairs: ' + pairs.length + ' found');
 
-      return {
-        id: pool.id,
-        poolAddress: pool.address,
-        baseToken: pool.baseMint,
-        quoteToken: pool.quoteMint,
-        liquidityUsd: parseFloat(pool.liquidity || 0),
-        volume24h: parseFloat(pool.volume24h || 0),
-        volume7d: parseFloat(pool.volume7d || 0),
-        volume24hQuote: parseFloat(pool.volume24hQuote || 0),
-        fee: pool.fee || 0.25,
-        createdAt: pool.openTime || Date.now()
-      };
-    } catch (error) {
-      console.error('Fetch pool details error:', error.message);
-      return null;
-    }
-  }
+      // Filter for Raydium pools only (have liquidity + volume)
+      const raydiumPairs = pairs.filter(p => {
+        const liquidity = p.liquidity?.usd || 0;
+        return liquidity >= FILTERS.MIN_LIQUIDITY_USD;
+      });
 
-  async fetchTokenMetadata(tokenAddress) {
-    try {
-      // Get token metadata from on-chain or Raydium
-      const response = await axios.get(
-        'https://api.solscan.io/api/token/meta?token=' + tokenAddress,
-        { timeout: 8000 }
-      );
-
-      const data = response.data?.data;
-      if (!data) return null;
-
-      return {
-        address: tokenAddress,
-        symbol: data.symbol || '???',
-        name: data.name || 'Unknown',
-        decimals: data.decimals || 9,
-        logo: data.icon || null,
-        devHoldPercent: parseFloat(data.owner_percentage || 0) * 100,
-        holderCount: parseInt(data.holder || 0),
-        website: data.website || null,
-        twitter: data.twitter || null,
-        telegram: data.telegram || null
-      };
-    } catch (error) {
-      console.error('Fetch token metadata error:', error.message);
-      return null;
-    }
-  }
-
-  async fetchNewPools() {
-    try {
-      const response = await axios.get(
-        RAYDIUM_FUSION_API + '/latest/pools?limit=30&sortField=createdTime&sortType=desc',
-        { timeout: 10000 }
-      );
-
-      const pools = response.data?.data || [];
-      console.log('Raydium new pools: ' + pools.length + ' found');
-      return pools;
+      return raydiumPairs;
     } catch (error) {
       if (error.response?.status === 429) {
-        console.log('Raydium rate limited — skipping this scan');
+        console.log('DexScreener rate limited — skipping this scan');
         return [];
       }
-      console.error('Fetch new pools error:', error.message);
+      console.error('Fetch Raydium pairs error:', error.message);
       return [];
     }
   }
 
-  async handleNewPool(poolData) {
+  async handleNewPair(pairData) {
     try {
-      const poolId = poolData.id;
-      if (!poolId || this.seenPools.has(poolId)) return;
-      this.seenPools.add(poolId);
-      this.seenPoolsTimestamp.set(poolId, Date.now());
+      const address = pairData.baseToken?.address || pairData.tokenAddress;
+      if (!address || this.seenPools.has(address)) return;
+      this.seenPools.add(address);
+      this.seenPoolsTimestamp.set(address, Date.now());
 
       if (this.seenPools.size % 50 === 0) {
         this.cleanupSeenPools();
       }
 
-      // Get base token (usually the new token, not USDC/USDT)
-      const baseTokenAddress = poolData.baseMint;
-      if (!baseTokenAddress) return;
-
-      // Fetch full details
-      const tokenData = await this.fetchTokenMetadata(baseTokenAddress);
-      if (!tokenData) return;
-
-      const { name, symbol, devHoldPercent, holderCount, website, twitter, telegram } = tokenData;
+      const name = pairData.baseToken?.name || pairData.tokenName || 'Unknown';
+      const symbol = pairData.baseToken?.symbol || pairData.tokenSymbol || '???';
+      const liquidity = parseFloat(pairData.liquidity?.usd || 0);
+      const volume24h = parseFloat(pairData.volume?.h24 || 0);
 
       // TIER 1: HARD FILTERS
 
@@ -207,74 +152,69 @@ class RaydiumScanner {
         return;
       }
 
-      // Get age of pool
-      const ageMinutes = (Date.now() - poolData.createdTime) / (1000 * 60);
-      if (ageMinutes > FILTERS.MAX_TOKEN_AGE_MINUTES) {
-        console.log('RaydiumScanner skipped: too old — ' + ageMinutes.toFixed(0) + ' min');
+      // Liquidity check
+      if (liquidity < FILTERS.MIN_LIQUIDITY_USD) {
+        console.log('RaydiumScanner rejected: low liquidity — $' + liquidity.toFixed(0));
         return;
       }
 
-      // Liquidity checks
-      const liquidityUsd = parseFloat(poolData.liquidity?.usd || 0);
-      if (liquidityUsd < FILTERS.MIN_LIQUIDITY_USD) {
-        console.log('RaydiumScanner rejected: low liquidity — $' + liquidityUsd.toFixed(0));
-        return;
-      }
-
-      if (liquidityUsd > FILTERS.MAX_LIQUIDITY_USD) {
-        console.log('RaydiumScanner rejected: whale project — $' + liquidityUsd.toFixed(0));
+      if (liquidity > FILTERS.MAX_LIQUIDITY_USD) {
+        console.log('RaydiumScanner rejected: whale project — $' + liquidity.toFixed(0));
         return;
       }
 
       // Volume check
-      const volume24h = parseFloat(poolData.volume24h?.usd || 0);
       if (volume24h < FILTERS.MIN_VOLUME_24H) {
         console.log('RaydiumScanner rejected: no volume — $' + volume24h.toFixed(0));
         return;
       }
 
-      // TIER 2: DEV REPUTATION CHECK
+      // Get age if available
+      const ageMinutes = pairData.pairCreatedAt
+        ? (Date.now() - pairData.pairCreatedAt) / (1000 * 60)
+        : 0;
+      if (ageMinutes > FILTERS.MAX_TOKEN_AGE_MINUTES) {
+        console.log('RaydiumScanner skipped: too old — ' + ageMinutes.toFixed(0) + ' min');
+        return;
+      }
 
-      const devWallet = poolData.creator || 'unknown';
-      const devRecord = getDevRecord(devWallet);
-      const devReputation = devRecord?.reputation || 'NEW';
+      // TIER 2: DEV REPUTATION (if available)
+      const devWallet = pairData.creator || 'unknown';
+      let devReputation = 'UNKNOWN';
+      let devStats = 'Raydium pool';
+
+      if (devWallet !== 'unknown') {
+        const devRecord = getDevRecord(devWallet);
+        devReputation = devRecord?.reputation || 'NEW';
+        devStats = devRecord
+          ? 'Launches: ' + devRecord.totalLaunched + ' | Success: ' + devRecord.successRate + '%'
+          : 'First time seen';
+      }
 
       if (devReputation === 'BLACKLISTED') {
-        console.log('RaydiumScanner rejected: blacklisted dev — ' + name);
+        console.log('RaydiumScanner rejected: blacklisted dev');
         return;
       }
 
       // Register for tracking
       if (devWallet !== 'unknown') {
-        registerToken(devWallet, baseTokenAddress, name);
+        registerToken(devWallet, address, name);
       }
 
       const devLabel = getReputationEmoji(devReputation);
-      const devStats = devRecord
-        ? 'Launches: ' + devRecord.totalLaunched +
-          ' | Success Rate: ' + devRecord.successRate + '%' +
-          ' | Rugs: ' + devRecord.rugCount
-        : 'First time seen';
 
       // Detect rug warnings
-      const rugWarnings = this.detectRugWarnings(
-        { liquidityUsd, volume24h, ageMinutes },
-        { devHoldPercent, holderCount }
-      );
+      const rugWarnings = this.detectRugWarnings(pairData);
       const warningText = rugWarnings.length > 0
         ? '\n⚠️  WARNING: ' + rugWarnings.join(', ')
         : '';
 
-      // Determine conviction level
+      // Determine conviction
       let conviction = 'LOW';
-      let confidence = 'Manual review required';
-
-      if (liquidityUsd >= 5000 && volume24h >= 1000 && holderCount >= 50) {
+      if (liquidity >= 5000 && volume24h >= 1000) {
         conviction = 'HIGH';
-        confidence = 'Real liquidity + volume + distribution';
-      } else if (liquidityUsd >= 2000 && volume24h >= 500) {
+      } else if (liquidity >= 2000 && volume24h >= 500) {
         conviction = 'MEDIUM';
-        confidence = 'Decent liquidity, watch for activity';
       }
 
       // AI analysis
@@ -283,91 +223,66 @@ class RaydiumScanner {
         aiAnalysis = await analyzeToken({
           name,
           symbol,
-          price: '0',
-          liquidity: liquidityUsd.toFixed(0),
-          marketCap: 'N/A',
+          price: pairData.priceUsd || '0',
+          liquidity: liquidity.toFixed(0),
+          marketCap: pairData.marketCap?.usd?.toFixed(0) || 'N/A',
           volume: volume24h.toFixed(0),
-          buys: 0,
-          sells: 0,
-          securityStatus: 'DEX verified',
+          buys: pairData.txns?.h24?.buys || 0,
+          sells: pairData.txns?.h24?.sells || 0,
+          securityStatus: 'Raydium verified',
           devReputation,
           devStats
         }, 'raydium');
       } catch (error) {
-        console.error('RaydiumScanner AI analysis error:', error.message);
+        console.error('RaydiumScanner AI error:', error.message);
       }
 
-      const links = [];
-      if (website) links.push('Website: ' + website + '\n');
-      if (twitter) links.push('Twitter: ' + twitter + '\n');
-      if (telegram) links.push('Telegram: ' + telegram + '\n');
-
       const message =
-        'RAYDIUM NEW POOL\n' +
+        'RAYDIUM POOL\n' +
         '========================\n\n' +
         'Token: ' + name + ' (' + symbol + ')\n' +
-        'Chain: Solana\n' +
-        'Address: ' + baseTokenAddress + '\n\n' +
-        'POOL DATA\n' +
-        'Liquidity: $' + liquidityUsd.toFixed(0) + '\n' +
+        'Address: ' + address + '\n\n' +
+        'LIQUIDITY\n' +
+        'Liquidity: $' + liquidity.toFixed(0) + '\n' +
         'Volume 24h: $' + volume24h.toFixed(0) + '\n' +
-        'Pool Age: ' + ageMinutes.toFixed(1) + ' minutes\n' +
-        'Holders: ' + holderCount + '\n\n' +
-        'DEV PROFILE\n' +
-        'Dev Hold: ' + devHoldPercent.toFixed(1) + '%\n' +
+        'Price: $' + (pairData.priceUsd || '0') + '\n\n' +
+        'DEV\n' +
         devLabel + '\n' +
         devStats + '\n\n' +
-        'CONVICTION: ' + conviction + warningText + '\n' +
-        'Confidence: ' + confidence + '\n\n' +
-        (links.length > 0 ? 'LINKS\n' + links.join('') + '\n' : '') +
+        'CONVICTION: ' + conviction + warningText + '\n\n' +
         (aiAnalysis ? 'AI ANALYSIS\n' + aiAnalysis + '\n\n' : '') +
-        'Raydium: https://raydium.io/swap/?inputMint=' + baseTokenAddress +
-        '\nDexScreener: https://dexscreener.com/solana/' + baseTokenAddress +
+        'Raydium: https://raydium.io/swap/?inputMint=' + address +
+        '\nChart: https://dexscreener.com/solana/' + address +
         '\n\nTrenchPulse Raydium Scanner';
 
       console.log(
         'Raydium signal: ' + name +
-        ' | Liquidity: $' + liquidityUsd.toFixed(0) +
+        ' | Liquidity: $' + liquidity.toFixed(0) +
         ' | Volume: $' + volume24h.toFixed(0) +
-        ' | Age: ' + ageMinutes.toFixed(1) + ' min' +
-        ' | Dev: ' + devReputation +
         ' | Conviction: ' + conviction
       );
 
       await sendTelegramAlert(message);
 
-      // Pass to scanner for deep analysis after 5 minutes (Raydium moves slower)
-      if (this.scanner && liquidityUsd >= 1000) {
-        setTimeout(async () => {
-          await this.scanner.analyzeAndAlert({
-            address: baseTokenAddress,
-            name,
-            symbol,
-            devWallet,
-            links: twitter ? [{ type: 'twitter', url: twitter }] : []
-          });
-        }, 300000); // 5 minutes
-      }
-
     } catch (error) {
-      console.error('RaydiumScanner pool error:', error.message);
+      console.error('RaydiumScanner pair error:', error.message);
     }
   }
 
-  async scanNewPools() {
+  async scanRaydium() {
     try {
-      console.log('Scanning Raydium for new pools...');
-      const pools = await this.fetchNewPools();
+      console.log('Scanning Raydium pools...');
+      const pairs = await this.fetchRaydiumPairs();
 
-      if (!pools || pools.length === 0) {
-        console.log('No new Raydium pools found');
+      if (!pairs || pairs.length === 0) {
+        console.log('No Raydium pairs found');
         return;
       }
 
-      for (const pool of pools.slice(0, 20)) {
-        await this.handleNewPool(pool);
+      for (const pair of pairs.slice(0, 15)) {
+        await this.handleNewPair(pair);
         // Rate limiting
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
 
     } catch (error) {
@@ -380,9 +295,9 @@ class RaydiumScanner {
     this.isRunning = true;
     console.log('RaydiumScanner started');
 
-    // Scan for new pools every 60 seconds
-    this.scanNewPools();
-    setInterval(() => this.scanNewPools(), this.scanInterval);
+    // Scan for new Raydium pools every 2 minutes
+    this.scanRaydium();
+    setInterval(() => this.scanRaydium(), this.scanInterval);
   }
 
   stop() {

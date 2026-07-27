@@ -5,8 +5,8 @@ const { PumpScanner } = require('./listeners/pumpscanner');
 const { RaydiumScanner } = require('./listeners/raydium-scanner');
 
 // Initialize dual scanners
-const pumpScanner = new PumpScanner(null); // Pump.fun catches community tokens at birth
-const raydiumScanner = new RaydiumScanner(null); // Raydium catches DEX launches with real liquidity
+const pumpScanner = new PumpScanner(null);
+const raydiumScanner = new RaydiumScanner(null);
 
 // Health check server
 const server = http.createServer((req, res) => {
@@ -33,13 +33,14 @@ console.log('Telegram alerts enabled');
 console.log('Dual scanner mode: Pump.fun + Raydium');
 console.log('Scanning for new tokens...');
 
-// Telegram bot — separate from node-telegram-bot-api
-// Using raw API to avoid polling conflicts
+// Telegram bot
 const axios = require('axios');
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 console.log('Bot started — watching chat ID: ' + TELEGRAM_CHAT_ID);
 let lastUpdateId = 0;
+let telegramRetries = 0;
+const MAX_TELEGRAM_RETRIES = 3;
 
 async function sendMessage(chatId, text) {
   try {
@@ -49,7 +50,11 @@ async function sendMessage(chatId, text) {
       { timeout: 10000 }
     );
   } catch (error) {
-    console.error('Send message error:', error.message);
+    if (error.response?.status === 409) {
+      console.log('Telegram 409 conflict (duplicate?) — skipping');
+    } else {
+      console.error('Send message error:', error.message);
+    }
   }
 }
 
@@ -67,12 +72,13 @@ async function pollTelegram() {
       }
     );
 
+    // Reset retry counter on successful poll
+    telegramRetries = 0;
+
     const updates = response.data?.result || [];
     if (updates.length > 0) {
-  console.log('Telegram update received from chat: ' +
-    updates[0]?.message?.chat?.id);
-  console.log('Expected chat ID: ' + TELEGRAM_CHAT_ID);
-}
+      console.log('Telegram: ' + updates.length + ' update(s)');
+    }
 
     for (const update of updates) {
       lastUpdateId = update.update_id;
@@ -82,23 +88,19 @@ async function pollTelegram() {
       const chatId = msg.chat.id.toString();
       const text = msg.text || '';
 
-    // Only respond to your chat
-const yourId = String(TELEGRAM_CHAT_ID).trim();
-const incomingId = String(chatId).trim();
+      // Only respond to your chat
+      const yourId = String(TELEGRAM_CHAT_ID).trim();
+      const incomingId = String(chatId).trim();
 
-if (incomingId !== yourId) {
-  console.log('Ignored chat: ' + incomingId + 
-    ' expected: ' + yourId);
-  continue;
-}
+      if (incomingId !== yourId) {
+        continue;
+      }
 
-      console.log('Telegram message received: ' + text);
+      console.log('Telegram message: ' + text);
 
       if (text.startsWith('BUY ') || text.startsWith('SKIP ')) {
-        // Fire and forget — don't block polling
-        console.log('Approval message received (manual review)');
-        await sendMessage(chatId, 'Manual review mode active — signals sent to your review queue.')
-          .catch(err => console.error('Approval error:', err.message));
+        console.log('Manual review message received');
+        await sendMessage(chatId, 'Noted — manual review mode active.');
         continue;
       }
 
@@ -119,12 +121,12 @@ if (incomingId !== yourId) {
           sendMessage(chatId,
             'TRENCHPULSE STATUS\n' +
             '========================\n\n' +
-            'Status: ONLINE\n' +
+            'Status: ONLINE ✓\n' +
             'Scanners: Pump.fun ✓ + Raydium ✓\n' +
             'Uptime: ' +
             Math.floor(process.uptime() / 60) + ' minutes\n\n' +
             'Mode: Manual Review\n' +
-            'Strategy: 0.05+ SOL Pump.fun + Real Liquidity Raydium\n\n' +
+            'Signals: Alerts only\n\n' +
             'TrenchPulse'
           ).catch(err => console.error('Status message error:', err.message));
           break;
@@ -133,16 +135,16 @@ if (incomingId !== yourId) {
           sendMessage(chatId,
             'TRENCHPULSE COMMANDS\n' +
             '========================\n\n' +
-            '/start — Welcome message\n' +
+            '/start — Welcome\n' +
             '/status — Bot status\n' +
             '/help — Show commands\n\n' +
-            'SIGNAL TYPES\n' +
-            'PUMP.FUN EARLY LAUNCH — Community tokens at seconds old\n' +
-            '  → 0.05+ SOL conviction required\n' +
-            '  → Manual review for quality\n\n' +
-            'RAYDIUM NEW POOL — DEX launches with real liquidity\n' +
-            '  → $1k+ liquidity minimum\n' +
-            '  → Real volume verification\n\n' +
+            'SIGNALS\n' +
+            'PUMP.FUN EARLY LAUNCH\n' +
+            '  → Community tokens, seconds old\n' +
+            '  → 0.05+ SOL backing\n\n' +
+            'RAYDIUM POOL\n' +
+            '  → DEX launches\n' +
+            '  → $1k+ liquidity\n\n' +
             'TrenchPulse'
           ).catch(err => console.error('Help error:', err.message));
           break;
@@ -152,7 +154,21 @@ if (incomingId !== yourId) {
       }
     }
   } catch (error) {
-    console.error('Telegram poll error:', error.message);
+    if (error.response?.status === 409) {
+      console.log('Telegram 409 conflict on poll — retrying...');
+      telegramRetries++;
+      if (telegramRetries > MAX_TELEGRAM_RETRIES) {
+        console.error('Telegram 409 retries exceeded — resetting offset');
+        telegramRetries = 0;
+        lastUpdateId = 0; // Reset to start fresh
+      }
+    } else {
+      console.error('Telegram poll error:', error.message);
+      telegramRetries++;
+      if (telegramRetries > MAX_TELEGRAM_RETRIES) {
+        telegramRetries = 0;
+      }
+    }
   }
 
   // Poll again after 1 second
