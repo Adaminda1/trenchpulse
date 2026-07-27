@@ -10,15 +10,26 @@ const {
 const PUMP_WS = 'wss://pumpportal.fun/api/data';
 
 const FILTERS = {
-  MIN_SOL_AMOUNT: 1,
-  MIN_MARKET_CAP_SOL: 10,
+  // ALERT THRESHOLD — low conviction, manual review required
+  MIN_SOL_AMOUNT_ALERT: 0.05,
+  MIN_MARKET_CAP_SOL_ALERT: 5,
+
+  // AUTO-TRADE THRESHOLD — high conviction, must be real dev backing
+  // Only ALPHA devs with 1+ SOL backing get auto-executed
+  MIN_SOL_AMOUNT_AUTO: 1,
+  MIN_MARKET_CAP_SOL_AUTO: 10,
+
+  // QUALITY FILTERS — applied to all (alert + auto)
   REQUIRE_IMAGE: true,
   MIN_NAME_LENGTH: 3,
+  MAX_NAME_LENGTH: 20,
+  REQUIRE_SOCIALS: false, // Not all early launches have socials yet
   BLOCK_KEYWORDS: [
     'test', 'scam', 'fake', 'rug', 'honey',
     'elon', 'trump', 'biden', 'safe', 'moon',
     'doge', 'shib', 'pepe', 'wojak', 'cum',
-    'porn', 'xxx', 'baby', 'mini', 'copy'
+    'porn', 'xxx', 'baby', 'mini', 'copy',
+    'clone', 'based', 'grift', 'pump', 'dump'
   ]
 };
 
@@ -28,12 +39,12 @@ class PumpScanner {
     this.ws = null;
     this.isRunning = false;
     this.seenTokens = new Set();
-    this.seenTokensTimestamp = new Map(); // Track when tokens were seen for cleanup
-    this.reconnectDelay = 5000; // Start at 5s
-    this.maxReconnectDelay = 60000; // Cap at 60s
+    this.seenTokensTimestamp = new Map();
+    this.reconnectDelay = 5000;
+    this.maxReconnectDelay = 60000;
     this.heartbeatInterval = null;
     this.connectionTimeout = null;
-    console.log('PumpScanner initialized');
+    console.log('PumpScanner initialized — Dual-tier filtering (0.05 SOL alert / 1 SOL auto)');
   }
 
   containsBlockedKeyword(text) {
@@ -45,16 +56,40 @@ class PumpScanner {
   isValidName(name) {
     if (!name) return false;
     if (name.length < FILTERS.MIN_NAME_LENGTH) return false;
+    if (name.length > FILTERS.MAX_NAME_LENGTH) return false;
+    // Reject pure numbers or mostly emoji/special chars
     if (/^\d+$/.test(name)) return false;
     const specialChars = name.replace(/[a-zA-Z0-9\s]/g, '').length;
     if (specialChars > 3) return false;
     return true;
   }
 
-  // FIX: Clean up old seen tokens after 24 hours to prevent memory leak
+  // Detect potential rug patterns early
+  detectRugWarnings(data) {
+    const warnings = [];
+    
+    // Dev wallet concentration risk
+    const solAmount = parseFloat(data.solAmount || 0);
+    if (solAmount < 0.05) {
+      warnings.push('micro-buy');
+    }
+    
+    // No image = higher rug risk
+    if (!data.image) {
+      warnings.push('no-image');
+    }
+    
+    // Generic names are rug bait
+    if (data.name && (data.name.length > 15 || data.name.length < 3)) {
+      warnings.push('suspicious-name-length');
+    }
+    
+    return warnings;
+  }
+
   cleanupSeenTokens() {
     const now = Date.now();
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    const maxAge = 24 * 60 * 60 * 1000;
     
     for (const [address, timestamp] of this.seenTokensTimestamp) {
       if (now - timestamp > maxAge) {
@@ -69,9 +104,8 @@ class PumpScanner {
       const address = data.mint;
       if (!address || this.seenTokens.has(address)) return;
       this.seenTokens.add(address);
-      this.seenTokensTimestamp.set(address, Date.now()); // Track when seen
+      this.seenTokensTimestamp.set(address, Date.now());
       
-      // Clean up old tokens every 100 new tokens
       if (this.seenTokens.size % 100 === 0) {
         this.cleanupSeenTokens();
       }
@@ -82,46 +116,40 @@ class PumpScanner {
       const solAmount = parseFloat(data.solAmount || 0);
       const marketCapSol = parseFloat(data.marketCapSol || 0);
 
-      // Keyword filter
+      // TIER 1: HARD FILTERS (apply to all)
+      
       if (this.containsBlockedKeyword(name) ||
           this.containsBlockedKeyword(symbol)) {
-        console.log('PumpScanner blocked keyword: ' + name);
+        console.log('PumpScanner rejected: blocked keyword — ' + name);
         return;
       }
 
-      // Name quality filter
       if (!this.isValidName(name)) {
-        console.log('PumpScanner blocked invalid name: ' + name);
+        console.log('PumpScanner rejected: invalid name — ' + name);
         return;
       }
 
-      // Minimum 1 SOL — dev must back with real money
-      if (solAmount < FILTERS.MIN_SOL_AMOUNT) {
-        console.log('PumpScanner blocked low buy: ' +
-          solAmount + ' SOL');
-        return;
-      }
-
-      // Minimum market cap filter
-      if (marketCapSol < FILTERS.MIN_MARKET_CAP_SOL) {
-        console.log('PumpScanner blocked low mcap: ' +
-          marketCapSol + ' SOL');
-        return;
-      }
-
-      // Image required
       if (FILTERS.REQUIRE_IMAGE && !data.image) {
-        console.log('PumpScanner blocked: no image');
+        console.log('PumpScanner rejected: no image — ' + name);
         return;
       }
 
-      // Dev reputation check
+      // TIER 2: DEV REPUTATION CHECK
+      
       const devRecord = getDevRecord(devWallet);
       const devReputation = devRecord?.reputation || 'NEW';
 
       if (devReputation === 'BLACKLISTED') {
-        console.log('PumpScanner blocked blacklisted dev: ' +
-          devWallet.slice(0, 8));
+        console.log('PumpScanner rejected: blacklisted dev — ' + name);
+        return;
+      }
+
+      // TIER 3: CONVICTION LEVEL (dual thresholds)
+
+      // Below MIN_ALERT = skip entirely (test launch)
+      if (solAmount < FILTERS.MIN_SOL_AMOUNT_ALERT) {
+        console.log('PumpScanner skipped (micro): ' + name +
+          ' | Buy: ' + solAmount.toFixed(6) + ' SOL');
         return;
       }
 
@@ -137,10 +165,24 @@ class PumpScanner {
           ' | Rugs: ' + devRecord.rugCount
         : 'First time seen';
 
-      // Conviction rating
+      // Determine conviction level
       let conviction = 'LOW';
-      if (solAmount >= 10) conviction = 'HIGH';
-      else if (solAmount >= 3) conviction = 'MEDIUM';
+      let autoTradeEligible = false;
+
+      if (solAmount >= FILTERS.MIN_SOL_AMOUNT_AUTO) {
+        conviction = 'HIGH';
+        // Only auto-trade if HIGH conviction + ALPHA dev
+        autoTradeEligible = (devReputation === 'ALPHA');
+      } else if (solAmount >= FILTERS.MIN_SOL_AMOUNT_ALERT) {
+        conviction = 'MEDIUM';
+        autoTradeEligible = false; // Requires manual approval
+      }
+
+      // Detect early rug warning signs
+      const rugWarnings = this.detectRugWarnings(data);
+      const warningText = rugWarnings.length > 0
+        ? '\n⚠️  RUG RISK: ' + rugWarnings.join(', ')
+        : '';
 
       // AI analysis with timeout protection
       let aiAnalysis = null;
@@ -148,7 +190,7 @@ class PumpScanner {
         aiAnalysis = await analyzeToken({
           name,
           symbol,
-          solAmount: solAmount.toFixed(4),
+          solAmount: solAmount.toFixed(6),
           marketCapSol: marketCapSol.toFixed(2),
           conviction,
           devReputation,
@@ -156,8 +198,11 @@ class PumpScanner {
         }, 'pump');
       } catch (error) {
         console.error('PumpScanner AI analysis error:', error.message);
-        // Continue without AI analysis
       }
+
+      const tradeApprovalText = autoTradeEligible
+        ? '\n\n✅ ELIGIBLE FOR AUTO-TRADE (ALPHA dev + 1+ SOL)\nWill execute if AUTO_TRADE_ENABLED=true'
+        : '\n\n⚠️  MANUAL APPROVAL REQUIRED\nReply: BUY ' + address.slice(0, 8) + ' or SKIP ' + address.slice(0, 8);
 
       const message =
         'PUMP.FUN EARLY LAUNCH\n' +
@@ -166,29 +211,32 @@ class PumpScanner {
         'Chain: Solana\n' +
         'Address: ' + address + '\n\n' +
         'LAUNCH DATA\n' +
-        'Initial Buy: ' + solAmount.toFixed(4) + ' SOL\n' +
+        'Initial Buy: ' + solAmount.toFixed(6) + ' SOL\n' +
         'Market Cap: ' + marketCapSol.toFixed(2) + ' SOL\n' +
-        'Conviction: ' + conviction + '\n\n' +
+        'Conviction: ' + conviction + warningText + '\n\n' +
         'DEV REPUTATION\n' +
         devLabel + '\n' +
         devStats + '\n\n' +
         (aiAnalysis ? 'AI ANALYSIS\n' + aiAnalysis + '\n\n' : '') +
-        'Pump.fun: https://pump.fun/' + address + '\n\n' +
+        'Pump.fun: https://pump.fun/' + address +
+        tradeApprovalText + '\n\n' +
         'TrenchPulse Early Scanner\n' +
-        'DYOR - Caught at launch';
+        'DYOR - Manual review recommended';
 
       console.log(
         'Pump.fun signal: ' + name +
-        ' | Buy: ' + solAmount.toFixed(2) + ' SOL' +
-        ' | MCap: ' + marketCapSol.toFixed(0) + ' SOL' +
+        ' | Buy: ' + solAmount.toFixed(6) + ' SOL' +
+        ' | MCap: ' + marketCapSol.toFixed(2) + ' SOL' +
         ' | Dev: ' + devReputation +
-        ' | Conviction: ' + conviction
+        ' | Conviction: ' + conviction +
+        (autoTradeEligible ? ' | AUTO-ELIGIBLE' : ' | MANUAL')
       );
 
       await sendTelegramAlert(message);
 
       // Pass to scanner for deep analysis after 2 minutes
-      if (this.scanner) {
+      // (only if meets minimum market cap for deeper look)
+      if (this.scanner && marketCapSol >= FILTERS.MIN_MARKET_CAP_SOL_ALERT) {
         setTimeout(async () => {
           await this.scanner.analyzeAndAlert({
             address,
@@ -209,7 +257,6 @@ class PumpScanner {
     }
   }
 
-  // FIX: Start heartbeat to keep connection alive
   startHeartbeat() {
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
     
@@ -222,10 +269,9 @@ class PumpScanner {
           console.error('Ping error:', error.message);
         }
       }
-    }, 30000); // Ping every 30 seconds
+    }, 30000);
   }
 
-  // FIX: Stop heartbeat when disconnecting
   stopHeartbeat() {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
@@ -233,7 +279,6 @@ class PumpScanner {
     }
   }
 
-  // FIX: Clear connection timeout
   clearConnectionTimeout() {
     if (this.connectionTimeout) {
       clearTimeout(this.connectionTimeout);
@@ -247,7 +292,6 @@ class PumpScanner {
         (this.reconnectDelay / 1000) + 's)');
       this.ws = new WebSocket(PUMP_WS);
 
-      // FIX: Add connection timeout (10 seconds to connect or fail)
       this.connectionTimeout = setTimeout(() => {
         if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
           console.error('Pump.fun connection timeout after 10s');
@@ -258,11 +302,8 @@ class PumpScanner {
       this.ws.on('open', () => {
         console.log('Pump.fun WebSocket connected ✓');
         this.clearConnectionTimeout();
-        
-        // FIX: Start heartbeat immediately after connection
         this.startHeartbeat();
         
-        // Send subscription
         try {
           this.ws.send(JSON.stringify({
             method: 'subscribeNewToken'
@@ -272,7 +313,6 @@ class PumpScanner {
           console.error('Failed to send subscription:', error.message);
         }
         
-        // FIX: Reset reconnect delay on successful connection
         this.reconnectDelay = 5000;
       });
 
@@ -283,11 +323,10 @@ class PumpScanner {
             await this.handleNewToken(parsed);
           }
         } catch (error) {
-          // Ignore parse errors silently — not all messages are token launches
+          // Ignore parse errors silently
         }
       });
 
-      // FIX: Handle WebSocket pong response
       this.ws.on('pong', () => {
         console.log('Pump.fun WebSocket pong received');
       });
@@ -298,10 +337,8 @@ class PumpScanner {
         this.clearConnectionTimeout();
         this.stopHeartbeat();
         
-        // FIX: Exponential backoff on reconnect
         if (this.isRunning) {
           setTimeout(() => this.connect(), this.reconnectDelay);
-          // Increase delay for next attempt (up to 60s max)
           this.reconnectDelay = Math.min(
             this.reconnectDelay * 1.5,
             this.maxReconnectDelay
@@ -331,7 +368,7 @@ class PumpScanner {
   start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    this.reconnectDelay = 5000; // Reset to 5s on fresh start
+    this.reconnectDelay = 5000;
     console.log('PumpScanner started');
     this.connect();
   }

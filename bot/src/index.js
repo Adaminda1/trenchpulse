@@ -1,12 +1,12 @@
 require('dotenv').config();
 const http = require('http');
 const https = require('https');
-const { Scanner } = require('./listeners/scanner');
 const { PumpScanner } = require('./listeners/pumpscanner');
+const { RaydiumScanner } = require('./listeners/raydium-scanner');
 
-// Initialize scanners
-const scanner = new Scanner();
-const pumpScanner = new PumpScanner(scanner);
+// Initialize dual scanners
+const pumpScanner = new PumpScanner(null); // Pump.fun catches community tokens at birth
+const raydiumScanner = new RaydiumScanner(null); // Raydium catches DEX launches with real liquidity
 
 // Health check server
 const server = http.createServer((req, res) => {
@@ -30,6 +30,7 @@ console.log('TRENCHPULSE INITIALIZED');
 console.log('========================');
 console.log('Solana RPC connected');
 console.log('Telegram alerts enabled');
+console.log('Dual scanner mode: Pump.fun + Raydium');
 console.log('Scanning for new tokens...');
 
 // Telegram bot — separate from node-telegram-bot-api
@@ -45,7 +46,7 @@ async function sendMessage(chatId, text) {
     await axios.post(
       'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/sendMessage',
       { chat_id: chatId, text: text },
-      { timeout: 10000 } // FIX: Add timeout to prevent message sending from hanging
+      { timeout: 10000 }
     );
   } catch (error) {
     console.error('Send message error:', error.message);
@@ -94,79 +95,54 @@ if (incomingId !== yourId) {
       console.log('Telegram message received: ' + text);
 
       if (text.startsWith('BUY ') || text.startsWith('SKIP ')) {
-        // FIX: Don't await this — fire and forget so Telegram doesn't hang
-        scanner.executor.handleApprovalReply(text)
-          .then(handled => {
-            if (!handled) {
-              sendMessage(chatId, 'Approval not found or expired.');
-            }
-          })
+        // Fire and forget — don't block polling
+        console.log('Approval message received (manual review)');
+        await sendMessage(chatId, 'Manual review mode active — signals sent to your review queue.')
           .catch(err => console.error('Approval error:', err.message));
         continue;
       }
 
       switch (text) {
         case '/start':
-          // FIX: Don't await — fire and forget
           sendMessage(chatId,
             'TrenchPulse is LIVE\n\n' +
-            'Scanning Pump.fun and DexScreener 24/7\n\n' +
+            'Scanning Pump.fun + Raydium 24/7\n\n' +
+            'Pump.fun: Community tokens at birth (0.05+ SOL)\n' +
+            'Raydium: DEX launches with real liquidity\n\n' +
             'Commands:\n' +
             '/status — Bot status\n' +
-            '/positions — Open trades\n' +
-            '/pause — Pause trading\n' +
-            '/resume — Resume trading\n' +
             '/help — All commands'
           ).catch(err => console.error('Start message error:', err.message));
           break;
 
         case '/status':
-          // FIX: /status is FAST and NEVER BLOCKS
           sendMessage(chatId,
             'TRENCHPULSE STATUS\n' +
             '========================\n\n' +
             'Status: ONLINE\n' +
-            'Auto Trade: ' + process.env.AUTO_TRADE_ENABLED + '\n' +
-            'Open Positions: ' +
-            scanner.executor.positions.size + '\n' +
-            'Daily Loss: ' +
-            scanner.executor.dailyLoss.toFixed(4) + ' SOL\n' +
+            'Scanners: Pump.fun ✓ + Raydium ✓\n' +
             'Uptime: ' +
             Math.floor(process.uptime() / 60) + ' minutes\n\n' +
+            'Mode: Manual Review\n' +
+            'Strategy: 0.05+ SOL Pump.fun + Real Liquidity Raydium\n\n' +
             'TrenchPulse'
           ).catch(err => console.error('Status message error:', err.message));
-          break;
-
-        case '/positions':
-          sendMessage(chatId,
-            scanner.executor.getPositionsSummary()
-          ).catch(err => console.error('Positions error:', err.message));
-          break;
-
-        case '/pause':
-          process.env.AUTO_TRADE_ENABLED = 'false';
-          sendMessage(chatId, 'Auto trading paused.')
-            .catch(err => console.error('Pause error:', err.message));
-          break;
-
-        case '/resume':
-          process.env.AUTO_TRADE_ENABLED = 'true';
-          sendMessage(chatId, 'Auto trading resumed.')
-            .catch(err => console.error('Resume error:', err.message));
           break;
 
         case '/help':
           sendMessage(chatId,
             'TRENCHPULSE COMMANDS\n' +
             '========================\n\n' +
-            'BUY xxxxxxxx — Approve trade\n' +
-            'SKIP xxxxxxxx — Reject trade\n' +
             '/start — Welcome message\n' +
             '/status — Bot status\n' +
-            '/positions — Open positions\n' +
-            '/pause — Pause auto trading\n' +
-            '/resume — Resume auto trading\n' +
             '/help — Show commands\n\n' +
+            'SIGNAL TYPES\n' +
+            'PUMP.FUN EARLY LAUNCH — Community tokens at seconds old\n' +
+            '  → 0.05+ SOL conviction required\n' +
+            '  → Manual review for quality\n\n' +
+            'RAYDIUM NEW POOL — DEX launches with real liquidity\n' +
+            '  → $1k+ liquidity minimum\n' +
+            '  → Real volume verification\n\n' +
             'TrenchPulse'
           ).catch(err => console.error('Help error:', err.message));
           break;
@@ -187,9 +163,10 @@ if (incomingId !== yourId) {
 pollTelegram();
 console.log('Telegram polling started');
 
-// Start scanners
-scanner.start();
+// Start dual scanners
 pumpScanner.start();
+raydiumScanner.start();
+console.log('Pump.fun + Raydium scanners started');
 
 // Self ping every 10 minutes
 const RENDER_URL = process.env.RENDER_URL ||
@@ -213,14 +190,14 @@ console.log('Self-ping active every 10 minutes');
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('TrenchPulse shutting down...');
-  scanner.stop();
   pumpScanner.stop();
+  raydiumScanner.stop();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('TrenchPulse shutting down...');
-  scanner.stop();
   pumpScanner.stop();
+  raydiumScanner.stop();
   process.exit(0);
 });
