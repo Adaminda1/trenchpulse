@@ -2,11 +2,9 @@ require('dotenv').config();
 const http = require('http');
 const https = require('https');
 const { PumpScanner } = require('./listeners/pumpscanner');
-const { RaydiumScanner } = require('./listeners/raydium-scanner');
 
-// Initialize dual scanners
+// Initialize scanner
 const pumpScanner = new PumpScanner(null);
-const raydiumScanner = new RaydiumScanner(null);
 
 // Health check server
 const server = http.createServer((req, res) => {
@@ -30,7 +28,7 @@ console.log('TRENCHPULSE INITIALIZED');
 console.log('========================');
 console.log('Solana RPC connected');
 console.log('Telegram alerts enabled');
-console.log('Dual scanner mode: Pump.fun + Raydium');
+console.log('Scanner mode: Pump.fun (early community detection)');
 console.log('Scanning for new tokens...');
 
 // Telegram bot
@@ -50,8 +48,8 @@ async function sendMessage(chatId, text) {
       { timeout: 10000 }
     );
   } catch (error) {
-    if (error.response?.status === 409) {
-      console.log('Telegram 409 conflict (duplicate?) — skipping');
+    if (error.response?.status === 409 || error.response?.status === 489) {
+      console.log('Telegram rate limit/conflict — skipping');
     } else {
       console.error('Send message error:', error.message);
     }
@@ -108,9 +106,9 @@ async function pollTelegram() {
         case '/start':
           sendMessage(chatId,
             'TrenchPulse is LIVE\n\n' +
-            'Scanning Pump.fun + Raydium 24/7\n\n' +
-            'Pump.fun: Community tokens at birth (0.05+ SOL)\n' +
-            'Raydium: DEX launches with real liquidity\n\n' +
+            'Scanning Pump.fun 24/7\n\n' +
+            'Community tokens at birth (0.05+ SOL)\n' +
+            'Rug risk detection enabled\n\n' +
             'Commands:\n' +
             '/status — Bot status\n' +
             '/help — All commands'
@@ -122,11 +120,11 @@ async function pollTelegram() {
             'TRENCHPULSE STATUS\n' +
             '========================\n\n' +
             'Status: ONLINE ✓\n' +
-            'Scanners: Pump.fun ✓ + Raydium ✓\n' +
+            'Scanner: Pump.fun ✓\n' +
             'Uptime: ' +
             Math.floor(process.uptime() / 60) + ' minutes\n\n' +
             'Mode: Manual Review\n' +
-            'Signals: Alerts only\n\n' +
+            'Conviction: 0.05+ SOL\n\n' +
             'TrenchPulse'
           ).catch(err => console.error('Status message error:', err.message));
           break;
@@ -140,11 +138,9 @@ async function pollTelegram() {
             '/help — Show commands\n\n' +
             'SIGNALS\n' +
             'PUMP.FUN EARLY LAUNCH\n' +
-            '  → Community tokens, seconds old\n' +
-            '  → 0.05+ SOL backing\n\n' +
-            'RAYDIUM POOL\n' +
-            '  → DEX launches\n' +
-            '  → $1k+ liquidity\n\n' +
+            '  → Community tokens at seconds old\n' +
+            '  → 0.05+ SOL conviction\n' +
+            '  → Rug risk flags included\n\n' +
             'TrenchPulse'
           ).catch(err => console.error('Help error:', err.message));
           break;
@@ -154,13 +150,13 @@ async function pollTelegram() {
       }
     }
   } catch (error) {
-    if (error.response?.status === 409) {
-      console.log('Telegram 409 conflict on poll — retrying...');
+    if (error.response?.status === 409 || error.response?.status === 489) {
+      console.log('Telegram rate limit on poll — retrying...');
       telegramRetries++;
       if (telegramRetries > MAX_TELEGRAM_RETRIES) {
-        console.error('Telegram 409 retries exceeded — resetting offset');
+        console.error('Telegram rate limit retries exceeded — resetting offset');
         telegramRetries = 0;
-        lastUpdateId = 0; // Reset to start fresh
+        lastUpdateId = 0;
       }
     } else {
       console.error('Telegram poll error:', error.message);
@@ -179,10 +175,9 @@ async function pollTelegram() {
 pollTelegram();
 console.log('Telegram polling started');
 
-// Start dual scanners
+// Start scanner
 pumpScanner.start();
-raydiumScanner.start();
-console.log('Pump.fun + Raydium scanners started');
+console.log('Pump.fun scanner started');
 
 // Self ping every 10 minutes
 const RENDER_URL = process.env.RENDER_URL ||
@@ -207,13 +202,11 @@ console.log('Self-ping active every 10 minutes');
 process.on('SIGINT', () => {
   console.log('TrenchPulse shutting down...');
   pumpScanner.stop();
-  raydiumScanner.stop();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('TrenchPulse shutting down...');
   pumpScanner.stop();
-  raydiumScanner.stop();
   process.exit(0);
 });
