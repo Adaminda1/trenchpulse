@@ -20,10 +20,10 @@ const FILTERS = {
   MIN_MARKET_CAP_SOL_AUTO: 10,
 
   // QUALITY FILTERS — applied to all (alert + auto)
-  REQUIRE_IMAGE: true,
+  REQUIRE_IMAGE: false,           // Images come later, don't require at launch
   MIN_NAME_LENGTH: 3,
   MAX_NAME_LENGTH: 20,
-  REQUIRE_SOCIALS: false, // Not all early launches have socials yet
+  REQUIRE_SOCIALS: false,
   BLOCK_KEYWORDS: [
     'test', 'scam', 'fake', 'rug', 'honey',
     'elon', 'trump', 'biden', 'safe', 'moon',
@@ -74,7 +74,7 @@ class PumpScanner {
       warnings.push('micro-buy');
     }
     
-    // No image = higher rug risk
+    // No image = higher rug risk (but allow it)
     if (!data.image) {
       warnings.push('no-image');
     }
@@ -126,11 +126,6 @@ class PumpScanner {
 
       if (!this.isValidName(name)) {
         console.log('PumpScanner rejected: invalid name — ' + name);
-        return;
-      }
-
-      if (FILTERS.REQUIRE_IMAGE && !data.image) {
-        console.log('PumpScanner rejected: no image — ' + name);
         return;
       }
 
