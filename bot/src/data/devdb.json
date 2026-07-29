@@ -406,15 +406,22 @@
         "launchedAt": 1784380488099,
         "status": "PENDING",
         "peakMultiple": 1
+      },
+      {
+        "address": "FobWG1iwwx4yyRxpbnWJvsUASPEnVs3Ah6kmvAqCpump",
+        "name": "sand matrix ",
+        "launchedAt": 1785321450384,
+        "status": "PENDING",
+        "peakMultiple": 1
       }
     ],
-    "totalLaunched": 1,
+    "totalLaunched": 2,
     "successCount": 0,
     "rugCount": 0,
     "successRate": 0,
     "reputation": "NEW",
     "firstSeen": 1784380488099,
-    "lastSeen": 1784380488099
+    "lastSeen": 1785321450384
   },
   "FJp5gB967zYAvyk7XG8mWtayzK111Q43A2yF4kjSEqmm": {
     "wallet": "FJp5gB967zYAvyk7XG8mWtayzK111Q43A2yF4kjSEqmm",
@@ -771,15 +778,29 @@
         "launchedAt": 1784380604153,
         "status": "PENDING",
         "peakMultiple": 1
+      },
+      {
+        "address": "2sb1iZVR7kzziqDXQ6RsAU8n5fzk1KNX9jNiaBUwnVva",
+        "name": "Deer In Pocket",
+        "launchedAt": 1785321271616,
+        "status": "PENDING",
+        "peakMultiple": 1
+      },
+      {
+        "address": "BE5pWxBhV9aEqby5LdbRJLDxutN69t5h3hGDLwtiypF",
+        "name": "Deer In Pocket",
+        "launchedAt": 1785321441703,
+        "status": "PENDING",
+        "peakMultiple": 1
       }
     ],
-    "totalLaunched": 1,
+    "totalLaunched": 3,
     "successCount": 0,
     "rugCount": 0,
     "successRate": 0,
     "reputation": "NEW",
     "firstSeen": 1784380604153,
-    "lastSeen": 1784380604153
+    "lastSeen": 1785321441703
   },
   "8HfUJM9VAJe5X68WNSeKgnYT6gX5ycNn6s9AmPj1kQmQ": {
     "wallet": "8HfUJM9VAJe5X68WNSeKgnYT6gX5ycNn6s9AmPj1kQmQ",
@@ -1774,5 +1795,741 @@
     "reputation": "NEW",
     "firstSeen": 1784381485993,
     "lastSeen": 1784381485993
+  },
+  "78PuuVcBJCVbnuQTtoaPH3UWLD7v3Lgo2z5okTznbApG": {
+    "wallet": "78PuuVcBJCVbnuQTtoaPH3UWLD7v3Lgo2z5okTznbApG",
+    "tokensLaunched": [
+      {
+        "address": "34BKS8DSmWStwdgQnTrUNbvMDxV3Z2ytJ9BV7dAHpump",
+        "name": "Don’t ",
+        "launchedAt": 1785321235703,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321235703,
+    "lastSeen": 1785321235703
+  },
+  "86wXchGSADmLszVgjzzKZtQD8a7Yxtwkmp7UPb6jcvHg": {
+    "wallet": "86wXchGSADmLszVgjzzKZtQD8a7Yxtwkmp7UPb6jcvHg",
+    "tokensLaunched": [
+      {
+        "address": "34AuoDDvH8N8WhPYa9QrzQCtDWkyoxajtyBNDf1gpump",
+        "name": "IRAN VS US",
+        "launchedAt": 1785321244434,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321244434,
+    "lastSeen": 1785321244434
+  },
+  "DqWGG3GVn2UzjR1T1PpZUC9PtTxZfYnyfSMHmM75Kcus": {
+    "wallet": "DqWGG3GVn2UzjR1T1PpZUC9PtTxZfYnyfSMHmM75Kcus",
+    "tokensLaunched": [
+      {
+        "address": "EW4AFyFRAN9UTDToDBC3MQuiP7vM9QNEoopNNELkpump",
+        "name": "Mother Of Jimothy",
+        "launchedAt": 1785321271910,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321271910,
+    "lastSeen": 1785321271910
+  },
+  "HygzzpFKrk93LJ6PpeTbFX4kEcMpuSB3Q2SS8edER7Ha": {
+    "wallet": "HygzzpFKrk93LJ6PpeTbFX4kEcMpuSB3Q2SS8edER7Ha",
+    "tokensLaunched": [
+      {
+        "address": "EN5Uf5LNed1nDF6E4Xor3E3U9CnM5zM6dy8AGLjHpump",
+        "name": "The Rousseauian Man",
+        "launchedAt": 1785321271916,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321271916,
+    "lastSeen": 1785321271916
+  },
+  "GKoztcXVYghTkeQru9YERnhxmAyQdBFzbqY2rrWDuDU8": {
+    "wallet": "GKoztcXVYghTkeQru9YERnhxmAyQdBFzbqY2rrWDuDU8",
+    "tokensLaunched": [
+      {
+        "address": "6ozPt2R9qUxUtPnPcVUjuBiv3q5vbDChMKQDvkf5pump",
+        "name": "Mr. Capy",
+        "launchedAt": 1785321271923,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321271923,
+    "lastSeen": 1785321271923
+  },
+  "4HXb7ivgvjbHC3TBesmmD9LovH8tmTv9DZsq12GMvEpU": {
+    "wallet": "4HXb7ivgvjbHC3TBesmmD9LovH8tmTv9DZsq12GMvEpU",
+    "tokensLaunched": [
+      {
+        "address": "AM6ATXdA2EnCiNrfCRtFdTXt6BwB96LKmQ1GEt2jpump",
+        "name": "Bill Kospi",
+        "launchedAt": 1785321271930,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321271930,
+    "lastSeen": 1785321271930
+  },
+  "5rKM83FVw92qBs7ioeY9Hj5bZtC8LWFzR7xcRuxz2zFC": {
+    "wallet": "5rKM83FVw92qBs7ioeY9Hj5bZtC8LWFzR7xcRuxz2zFC",
+    "tokensLaunched": [
+      {
+        "address": "6BwFy15nJqzc6LDweCchEDYn5ts6BZpBtTRwkYARpump",
+        "name": "Thegoofygoblin",
+        "launchedAt": 1785321274711,
+        "status": "PENDING",
+        "peakMultiple": 1
+      },
+      {
+        "address": "7V1zBHaMoMxrEKKrkwBivhm4w4vg84NrGg86pufKpump",
+        "name": "Thegoofygoblin",
+        "launchedAt": 1785321896228,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 2,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321274711,
+    "lastSeen": 1785321896228
+  },
+  "HBDurfrFjXe88LL4KXY5QKEUCorkaZZfogZUfg9mEt5r": {
+    "wallet": "HBDurfrFjXe88LL4KXY5QKEUCorkaZZfogZUfg9mEt5r",
+    "tokensLaunched": [
+      {
+        "address": "DNSS3MQrPj4FwKKxyMpUFG49jyoLHLpig7VV2EWepump",
+        "name": "Burrito Dog",
+        "launchedAt": 1785321279210,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321279210,
+    "lastSeen": 1785321279210
+  },
+  "5XW8SChjrdvykVZUenbXZn3qXvbc5HgYvT9Q8fReQiHt": {
+    "wallet": "5XW8SChjrdvykVZUenbXZn3qXvbc5HgYvT9Q8fReQiHt",
+    "tokensLaunched": [
+      {
+        "address": "E4cMUP8pFvGD1zKmyU4UtnuaDwmfmwBLj7btXT9Hpump",
+        "name": "Brad",
+        "launchedAt": 1785321294857,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321294857,
+    "lastSeen": 1785321294857
+  },
+  "N9SyhAXDckG4y2B911paJPpwS7cvxWSxcng53mebXGf": {
+    "wallet": "N9SyhAXDckG4y2B911paJPpwS7cvxWSxcng53mebXGf",
+    "tokensLaunched": [
+      {
+        "address": "Gk29vNznh8pnkqo5aEuqZXaeFTKdxYbGboScMsrspump",
+        "name": "The Balls Detective",
+        "launchedAt": 1785321294864,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321294863,
+    "lastSeen": 1785321294864
+  },
+  "H37LudUy1idvYuS4QyA6ccwsHt5f6P2CXx2DtDae4VZr": {
+    "wallet": "H37LudUy1idvYuS4QyA6ccwsHt5f6P2CXx2DtDae4VZr",
+    "tokensLaunched": [
+      {
+        "address": "EVsnuK72k1BMJGwsKa9RDYVu9Yvek9XjvseuSWBZpump",
+        "name": "SIUUU",
+        "launchedAt": 1785321294944,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321294944,
+    "lastSeen": 1785321294944
+  },
+  "CKA3GG2dxvkC4JWKJnwWtWcvAzXQFhsrhL2wWi6o39hP": {
+    "wallet": "CKA3GG2dxvkC4JWKJnwWtWcvAzXQFhsrhL2wWi6o39hP",
+    "tokensLaunched": [
+      {
+        "address": "CVWHHREB1okZFEHMscs2s2MLaXPkQMNCdHkeL8Nepump",
+        "name": "Deer In Pocket",
+        "launchedAt": 1785321318584,
+        "status": "PENDING",
+        "peakMultiple": 1
+      },
+      {
+        "address": "ffDfg5fDSYF8zvSFJzcMoAuso37GN3xtqL2Z9Eipump",
+        "name": "Deer In Pocket",
+        "launchedAt": 1785321321139,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 2,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321318584,
+    "lastSeen": 1785321321139
+  },
+  "5wVFbqTsXa6CoWAH4FiSJGgTZUfU5ssa2aDAj74DrHxM": {
+    "wallet": "5wVFbqTsXa6CoWAH4FiSJGgTZUfU5ssa2aDAj74DrHxM",
+    "tokensLaunched": [
+      {
+        "address": "6rZPbMxjtj2X29TBBnfF3a9QoYh5oPYhwrbrfmPrpump",
+        "name": "The Troll Bear",
+        "launchedAt": 1785321351678,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321351678,
+    "lastSeen": 1785321351678
+  },
+  "9NH3BiyPCuhA5bvby8oDHPYEJr6XmV7Vp9boYygqPaBd": {
+    "wallet": "9NH3BiyPCuhA5bvby8oDHPYEJr6XmV7Vp9boYygqPaBd",
+    "tokensLaunched": [
+      {
+        "address": "G7LXYzTU5Cd6bisTsm1YY1WanCt457w4xKtDhgq2pump",
+        "name": "Slap me again",
+        "launchedAt": 1785321356924,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321356924,
+    "lastSeen": 1785321356924
+  },
+  "BwhFCqESrGg6eYK6CFs84kkTSGJ8v8SmgDhNgGweG48g": {
+    "wallet": "BwhFCqESrGg6eYK6CFs84kkTSGJ8v8SmgDhNgGweG48g",
+    "tokensLaunched": [
+      {
+        "address": "CecruvYcBtpLb1zQdPvEAFuWJ7P3PFQF2NA8XFMhpump",
+        "name": "Tung Tung Tung Frank",
+        "launchedAt": 1785321571637,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321571637,
+    "lastSeen": 1785321571637
+  },
+  "EcuvLqcnAHWy6KS2pJKhz4xJu1LjfHi1FzKCaAmjASfY": {
+    "wallet": "EcuvLqcnAHWy6KS2pJKhz4xJu1LjfHi1FzKCaAmjASfY",
+    "tokensLaunched": [
+      {
+        "address": "DpXpcbE67quYws66MPmnwYUFvJmPdZHTaYiFSEKjpump",
+        "name": "Fallout Sodies",
+        "launchedAt": 1785321576348,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321576348,
+    "lastSeen": 1785321576348
+  },
+  "2K5by5vAcdExMmroWSi4s2cyFpW1xgyYGXd39DTaTGgT": {
+    "wallet": "2K5by5vAcdExMmroWSi4s2cyFpW1xgyYGXd39DTaTGgT",
+    "tokensLaunched": [
+      {
+        "address": "FKNMspPiZfZVZqhizM3Tuqkm8gLLdWFfuYifV4YCpump",
+        "name": "rip Kavinsky ",
+        "launchedAt": 1785321581357,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321581357,
+    "lastSeen": 1785321581357
+  },
+  "4sfQe3f7nwa5Y4zYyCoU7CKJqkyADg1meaAQYtPdw6sX": {
+    "wallet": "4sfQe3f7nwa5Y4zYyCoU7CKJqkyADg1meaAQYtPdw6sX",
+    "tokensLaunched": [
+      {
+        "address": "xcx21XQvzQeqFqmjP912d9Xkf93Mwr2ZrmiiwLZpump",
+        "name": "erm Actually",
+        "launchedAt": 1785321588883,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321588883,
+    "lastSeen": 1785321588883
+  },
+  "3G5u7mX2Hnc7j9KmfnW4uYBCa98YkWAAQ54QeF5bsoZ8": {
+    "wallet": "3G5u7mX2Hnc7j9KmfnW4uYBCa98YkWAAQ54QeF5bsoZ8",
+    "tokensLaunched": [
+      {
+        "address": "JB2RQpDorPLeoBVTsAefC28qCdgeGyXyVZfWhubPpump",
+        "name": "Bill Kospi",
+        "launchedAt": 1785321598033,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321598033,
+    "lastSeen": 1785321598033
+  },
+  "95ZCf3jKMHeFYvPXVZW3Ek6AEPDyjebosqnc7eNioVMo": {
+    "wallet": "95ZCf3jKMHeFYvPXVZW3Ek6AEPDyjebosqnc7eNioVMo",
+    "tokensLaunched": [
+      {
+        "address": "BuyWup2oB23W6mo36RRS3UFviXMuphcLoNCbAstmpump",
+        "name": "The Fat Chud",
+        "launchedAt": 1785321612502,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321612502,
+    "lastSeen": 1785321612502
+  },
+  "DuMxuAZzEs5ZBJtLGkvFwi4WvzdhcWWeVcBH3NUU75bv": {
+    "wallet": "DuMxuAZzEs5ZBJtLGkvFwi4WvzdhcWWeVcBH3NUU75bv",
+    "tokensLaunched": [
+      {
+        "address": "8dqCotj4N9P4atWbn5vJqa2aen24WuVCi6W55QVupump",
+        "name": "The Black Badger",
+        "launchedAt": 1785321617277,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321617277,
+    "lastSeen": 1785321617277
+  },
+  "Hwnq8TdSjsfqCHmn6ktKCXdT6j8QMwz4ewBSM7PsoDW1": {
+    "wallet": "Hwnq8TdSjsfqCHmn6ktKCXdT6j8QMwz4ewBSM7PsoDW1",
+    "tokensLaunched": [
+      {
+        "address": "81z5CwD4D9ZegiMtCSzBoj8w6soJugqNPcA15EaXpump",
+        "name": "The Fat Chud",
+        "launchedAt": 1785321624370,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321624370,
+    "lastSeen": 1785321624370
+  },
+  "AiPyjzcdniX1yNv6B7uRf7SJrSmYhfnvuL5y6rAN15so": {
+    "wallet": "AiPyjzcdniX1yNv6B7uRf7SJrSmYhfnvuL5y6rAN15so",
+    "tokensLaunched": [
+      {
+        "address": "6bVV9DE9xT6Ui5uKFiLNb7TVA5syjqJ195g8NHL9pump",
+        "name": "Robot Barbers",
+        "launchedAt": 1785321624595,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321624595,
+    "lastSeen": 1785321624595
+  },
+  "CRzpBtFwjGkYKjwPSBzC4mn8qF2eb7XpjfPemubT4dgE": {
+    "wallet": "CRzpBtFwjGkYKjwPSBzC4mn8qF2eb7XpjfPemubT4dgE",
+    "tokensLaunched": [
+      {
+        "address": "7YQu5JqmBPqWNVZp2DPccvqJ5o31FoCvt8661vBtpump",
+        "name": "Ishi",
+        "launchedAt": 1785321652907,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321652907,
+    "lastSeen": 1785321652907
+  },
+  "CyJLNEWdAuPZfumE3WoQYDFh2fjryKb7MdHUiDtWFJT8": {
+    "wallet": "CyJLNEWdAuPZfumE3WoQYDFh2fjryKb7MdHUiDtWFJT8",
+    "tokensLaunched": [
+      {
+        "address": "78GtTJhgEB4KpGXSMr4FzNF7HRotUVRzCXUg52cMpump",
+        "name": "Pipe Fish",
+        "launchedAt": 1785321656515,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321656515,
+    "lastSeen": 1785321656515
+  },
+  "F8WTjgc6kJnSw4TtHYNFWrz66m7Au7DhcK3QuqpmkqEV": {
+    "wallet": "F8WTjgc6kJnSw4TtHYNFWrz66m7Au7DhcK3QuqpmkqEV",
+    "tokensLaunched": [
+      {
+        "address": "878eh57yfT1ETaCZhnd5GMqKQ8pRzjZH5dgkqB3Xpump",
+        "name": "POPCATWIFHAT",
+        "launchedAt": 1785321682630,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321682630,
+    "lastSeen": 1785321682630
+  },
+  "BmjgXVWjD7X87koFoAaxGyRRynEWm3kmhF8fWu5cnTym": {
+    "wallet": "BmjgXVWjD7X87koFoAaxGyRRynEWm3kmhF8fWu5cnTym",
+    "tokensLaunched": [
+      {
+        "address": "D3897eYsEZayjjkrXXtrj9w4sq9nH7EvwNCCHoyxpump",
+        "name": "copet",
+        "launchedAt": 1785321697960,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321697960,
+    "lastSeen": 1785321697960
+  },
+  "HihcH7nKzzXMBTiid9GrW7YFnGanwAdTFHVT3bVrco4Z": {
+    "wallet": "HihcH7nKzzXMBTiid9GrW7YFnGanwAdTFHVT3bVrco4Z",
+    "tokensLaunched": [
+      {
+        "address": "GWrKsk419MesJVJdcGciWzohtjWfEpZy3utZCQxPpump",
+        "name": "Tom Lee",
+        "launchedAt": 1785321702398,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321702398,
+    "lastSeen": 1785321702398
+  },
+  "3cZQqQHiVG9Tn7Q6ztrYh2xWQJWJaCsrDcobkJVvk4fh": {
+    "wallet": "3cZQqQHiVG9Tn7Q6ztrYh2xWQJWJaCsrDcobkJVvk4fh",
+    "tokensLaunched": [
+      {
+        "address": "FVB1cooUFQ1n12WpJuTgpBoLiBSB5vjQEHxfsHjCpump",
+        "name": "8% OUT",
+        "launchedAt": 1785321705744,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321705744,
+    "lastSeen": 1785321705744
+  },
+  "BwPFmWgirMuf7RDyxxBg8eBHwFuqSTupSdtgG3DRNpDd": {
+    "wallet": "BwPFmWgirMuf7RDyxxBg8eBHwFuqSTupSdtgG3DRNpDd",
+    "tokensLaunched": [
+      {
+        "address": "Gd3KvSwiJyuTJLNfq9k4NJXEUrPu2Sc1yuvpC6z7pump",
+        "name": "The Wifebeater",
+        "launchedAt": 1785321715231,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321715231,
+    "lastSeen": 1785321715231
+  },
+  "3RfvoVCGC4K52RBGQVwtG69n9yb2mQUcfkx3JrHQWJj1": {
+    "wallet": "3RfvoVCGC4K52RBGQVwtG69n9yb2mQUcfkx3JrHQWJj1",
+    "tokensLaunched": [
+      {
+        "address": "CSq6Ws7wq71bnRFG9RzvrLsWC7hVZ3eQysQnATCwpump",
+        "name": "Speedwalk to 1m",
+        "launchedAt": 1785321821499,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321821499,
+    "lastSeen": 1785321821499
+  },
+  "65K94o4vcdZc2fNJBr5XvqPEZnwAXZ7YpEa1oPvBVhS3": {
+    "wallet": "65K94o4vcdZc2fNJBr5XvqPEZnwAXZ7YpEa1oPvBVhS3",
+    "tokensLaunched": [
+      {
+        "address": "4XzbRr9XmUoh6sMcuwSsVdmrtQooB7gdFZ3Xp1pfpump",
+        "name": "Jimothy's Mom",
+        "launchedAt": 1785321850523,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321850523,
+    "lastSeen": 1785321850523
+  },
+  "81WZPyt4Sj8zwAVVfVBR6HL4onPXttvn1PPxfL5NBxzf": {
+    "wallet": "81WZPyt4Sj8zwAVVfVBR6HL4onPXttvn1PPxfL5NBxzf",
+    "tokensLaunched": [
+      {
+        "address": "FmR795wVcdVuKVRwViJrBHiRuG4ouUj2Rh5HhC7Xpump",
+        "name": "The Russian Warrior",
+        "launchedAt": 1785321870733,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321870733,
+    "lastSeen": 1785321870733
+  },
+  "3kTSoDXuXoSpJZwZ2SdoLrZHqjrgdHAG1XdrdoP47cDk": {
+    "wallet": "3kTSoDXuXoSpJZwZ2SdoLrZHqjrgdHAG1XdrdoP47cDk",
+    "tokensLaunched": [
+      {
+        "address": "J8rq1HB1eYnXc3xF38J5D35ffZhnBK8Uth95GQTHpump",
+        "name": "The Rainbow pfp",
+        "launchedAt": 1785321870739,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321870739,
+    "lastSeen": 1785321870739
+  },
+  "9ncm3MfxC3b2HYxP8NrijRZSeE36vFfxgJvGRd16Buwi": {
+    "wallet": "9ncm3MfxC3b2HYxP8NrijRZSeE36vFfxgJvGRd16Buwi",
+    "tokensLaunched": [
+      {
+        "address": "2qhGgx53coHBjxsoydC7RHw1UZdqAZ1SsETMUDS7pump",
+        "name": "The Starry Sky",
+        "launchedAt": 1785321871472,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321871472,
+    "lastSeen": 1785321871472
+  },
+  "BLK1ZJ3Ad2DKtsKMtz2urdJDnmxog9Hi2DTVnaDGrzVX": {
+    "wallet": "BLK1ZJ3Ad2DKtsKMtz2urdJDnmxog9Hi2DTVnaDGrzVX",
+    "tokensLaunched": [
+      {
+        "address": "2Sb5sDkPrQpLtG8QszhPEJwBpv1WmJDGUWdrU83Fgrrq",
+        "name": "dogballs token",
+        "launchedAt": 1785321885841,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321885841,
+    "lastSeen": 1785321885841
+  },
+  "Bzk7bSNtUYvjKduDvGqU19aUaja9WqNnhq8rV39JY3W5": {
+    "wallet": "Bzk7bSNtUYvjKduDvGqU19aUaja9WqNnhq8rV39JY3W5",
+    "tokensLaunched": [
+      {
+        "address": "DdBS4fnHuYYUirHmyRM5ERHftXCR7uqy2jzetYg3pump",
+        "name": "PaliSade",
+        "launchedAt": 1785321891710,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321891710,
+    "lastSeen": 1785321891710
+  },
+  "GFgjx1p2Gk6Y58h4Ph9vdTXmmG4u6c7RW9h9xWEFPqmZ": {
+    "wallet": "GFgjx1p2Gk6Y58h4Ph9vdTXmmG4u6c7RW9h9xWEFPqmZ",
+    "tokensLaunched": [
+      {
+        "address": "2bFCkrNBx3zJCJCqhjLyikTHBYjxxmMYJ6RcgvDHpump",
+        "name": "crated milk",
+        "launchedAt": 1785321893688,
+        "status": "PENDING",
+        "peakMultiple": 1
+      }
+    ],
+    "totalLaunched": 1,
+    "successCount": 0,
+    "rugCount": 0,
+    "successRate": 0,
+    "reputation": "NEW",
+    "firstSeen": 1785321893688,
+    "lastSeen": 1785321893688
   }
 }
