@@ -10,9 +10,9 @@ const {
 const PUMP_WS = 'wss://pumpportal.fun/api/data';
 
 const FILTERS = {
-  // ALERT THRESHOLD
-  MIN_SOL_AMOUNT_ALERT: 0.05,
-  MIN_MARKET_CAP_SOL_ALERT: 5,
+  // ALERT THRESHOLD — high conviction only
+  MIN_SOL_AMOUNT_ALERT: 0.1,      // Real money backing (0.05 was too loose)
+  MIN_MARKET_CAP_SOL_ALERT: 10,   // Meaningful liquidity
 
   // AUTO-TRADE THRESHOLD
   MIN_SOL_AMOUNT_AUTO: 1,
@@ -20,9 +20,10 @@ const FILTERS = {
 
   // QUALITY FILTERS
   REQUIRE_IMAGE: false,
+  REQUIRE_SOCIALS: true,          // NEW: Must have Twitter OR Telegram
   MIN_NAME_LENGTH: 3,
   MAX_NAME_LENGTH: 20,
-  REQUIRE_SOCIALS: false,
+  
   BLOCK_KEYWORDS: [
     'test', 'scam', 'fake', 'rug', 'honey',
     'porn', 'xxx'
@@ -40,7 +41,7 @@ class PumpScanner {
     this.maxReconnectDelay = 60000;
     this.heartbeatInterval = null;
     this.connectionTimeout = null;
-    console.log('PumpScanner initialized — Smart pattern-based rug detection');
+    console.log('PumpScanner PRO initialized — High conviction only (0.1 SOL min, socials required)');
   }
 
   containsBlockedKeyword(text) {
@@ -57,77 +58,48 @@ class PumpScanner {
   }
 
   // Smart pattern-based rug detection
-  // Avoids false positives on legitimate compound names
   isObviousRug(name, symbol) {
     if (!name) return false;
     const lower = name.toLowerCase();
 
     // PATTERN 1: Pure gibberish (all caps/random, very short)
-    // SIUUU, LMAO, XYZ, etc.
     if (name.length <= 4 && /^[A-Z0-9]{1,4}$/.test(name)) {
       return true;
     }
 
-    // PATTERN 2: Generic first names ONLY (no context/descriptor)
-    // "Brad" = rug bait
-    // "Brad's Coin" or "Brad Coin" = okay
+    // PATTERN 2: Generic first names ONLY
     const firstNames = [
       'brad', 'joe', 'john', 'mike', 'dave', 'tom', 'sara', 'bob',
       'alice', 'charlie', 'david', 'emma', 'frank', 'george',
       'henry', 'iris', 'james', 'kelly'
     ];
     if (firstNames.includes(lower) && name.length < 8) {
-      // Standalone first name = rug
       return true;
     }
 
-    // PATTERN 3: Isolated animal/food names (no descriptor)
-    // "dog" = rug bait
-    // "Bullish" = legitimate (adjective)
-    // "Bull Market" = legitimate (compound)
-    // "Bulldog" = legitimate (compound)
-    // "Hot Dog Coin" = legitimate (branded)
+    // PATTERN 3: Isolated animal/food names
     const animals = ['dog', 'cat', 'bird', 'fish', 'ape', 'monkey', 'pig', 'cow', 'sheep'];
-    const foods = ['pizza', 'burger', 'taco', 'coffee', 'beer', 'wine', 'beer'];
+    const foods = ['pizza', 'burger', 'taco', 'coffee', 'beer', 'wine'];
 
     for (const animal of animals) {
-      // Reject ONLY if it's the exact word alone
-      if (lower === animal) {
-        return true;
-      }
-      // Reject if it's the last word and nothing descriptive before it
-      // "something dog" alone = rug (but "hot dog" or "bulldog" = okay)
+      if (lower === animal) return true;
       if (lower.endsWith(' ' + animal) && !lower.includes('-') && name.split(' ').length === 2) {
-        // Check if the first word is a real adjective/descriptor
         const firstWord = name.split(' ')[0].toLowerCase();
         const legit = ['hot', 'cold', 'big', 'small', 'green', 'red', 'blue', 'fire', 'ice'];
-        if (!legit.includes(firstWord)) {
-          return true;
-        }
+        if (!legit.includes(firstWord)) return true;
       }
     }
 
     for (const food of foods) {
-      if (lower === food) {
-        return true;
-      }
+      if (lower === food) return true;
     }
 
     // PATTERN 4: Pure numbers or repeated characters
-    // "111", "aaaa", etc.
-    if (/^[0-9]+$/.test(name)) {
-      return true;
-    }
-    if (/^(.)\1{2,}$/.test(name)) {
-      // aaa, bbbb, etc.
-      return true;
-    }
+    if (/^[0-9]+$/.test(name)) return true;
+    if (/^(.)\1{2,}$/.test(name)) return true;
 
-    // PATTERN 5: Suspicious repetition patterns
-    // "dodododo", "lalala", etc.
-    if (name.length > 4 && /(.{2,})\1{2,}/.test(lower)) {
-      return true;
-    }
+    // PATTERN 5: Suspicious repetition
+    if (name.length > 4 && /(.{2,})\1{2,}/.test(lower)) return true;
 
     return false;
   }
@@ -139,21 +111,39 @@ class PumpScanner {
     return true;
   }
 
+  // Check if token has socials (Twitter and/or Telegram)
+  hasSocials(data) {
+    const hasTwitter = !!data.twitter && data.twitter.trim().length > 0;
+    const hasTelegram = !!data.telegram && data.telegram.trim().length > 0;
+    return hasTwitter || hasTelegram;
+  }
+
+  // Count how many socials (for quality scoring)
+  countSocials(data) {
+    let count = 0;
+    if (data.twitter && data.twitter.trim().length > 0) count++;
+    if (data.telegram && data.telegram.trim().length > 0) count++;
+    if (data.website && data.website.trim().length > 0) count++;
+    return count;
+  }
+
   // Detect early rug warning signs
   detectRugWarnings(data) {
     const warnings = [];
     
     const solAmount = parseFloat(data.solAmount || 0);
-    if (solAmount < 0.05) {
-      warnings.push('micro-buy');
+    if (solAmount < 0.1) {
+      warnings.push('low-conviction');
     }
     
     if (!data.image) {
       warnings.push('no-image');
     }
-    
-    if (data.name && (data.name.length > 15 || data.name.length < 3)) {
-      warnings.push('suspicious-name-length');
+
+    // Social count impacts risk assessment
+    const socialCount = this.countSocials(data);
+    if (socialCount === 1) {
+      warnings.push('single-social');
     }
     
     return warnings;
@@ -196,7 +186,6 @@ class PumpScanner {
         return;
       }
 
-      // Smart pattern-based rug detection
       if (this.isObviousRug(name, symbol)) {
         console.log('PumpScanner rejected: obvious rug pattern — ' + name);
         return;
@@ -207,7 +196,14 @@ class PumpScanner {
         return;
       }
 
-      // TIER 2: DEV REPUTATION CHECK
+      // TIER 2: SOCIALS REQUIREMENT (NEW — filters 90% of rugs)
+      
+      if (!this.hasSocials(data)) {
+        console.log('PumpScanner rejected: no socials (Twitter/Telegram required) — ' + name);
+        return;
+      }
+
+      // TIER 3: DEV REPUTATION
       
       const devRecord = getDevRecord(devWallet);
       const devReputation = devRecord?.reputation || 'NEW';
@@ -217,11 +213,17 @@ class PumpScanner {
         return;
       }
 
-      // TIER 3: CONVICTION LEVEL
+      // TIER 4: CONVICTION LEVEL (stricter thresholds)
       
       if (solAmount < FILTERS.MIN_SOL_AMOUNT_ALERT) {
-        console.log('PumpScanner skipped (micro): ' + name +
-          ' | Buy: ' + solAmount.toFixed(6) + ' SOL');
+        console.log('PumpScanner rejected: low conviction — ' + name +
+          ' | Buy: ' + solAmount.toFixed(6) + ' SOL (need 0.1+)');
+        return;
+      }
+
+      if (marketCapSol < FILTERS.MIN_MARKET_CAP_SOL_ALERT) {
+        console.log('PumpScanner rejected: low market cap — ' + name +
+          ' | MCap: ' + marketCapSol.toFixed(2) + ' SOL (need 10+)');
         return;
       }
 
@@ -237,22 +239,33 @@ class PumpScanner {
           ' | Rugs: ' + devRecord.rugCount
         : 'First time seen';
 
-      // Determine conviction level
-      let conviction = 'LOW';
+      // Determine conviction level (all high conviction now due to filters)
+      let conviction = 'HIGH';
       let autoTradeEligible = false;
 
       if (solAmount >= FILTERS.MIN_SOL_AMOUNT_AUTO) {
-        conviction = 'HIGH';
         autoTradeEligible = (devReputation === 'ALPHA');
-      } else if (solAmount >= FILTERS.MIN_SOL_AMOUNT_ALERT) {
-        conviction = 'MEDIUM';
-        autoTradeEligible = false;
       }
 
       // Detect rug warning signs
       const rugWarnings = this.detectRugWarnings(data);
       const warningText = rugWarnings.length > 0
-        ? '\n⚠️  RUG RISK: ' + rugWarnings.join(', ')
+        ? '\n⚠️  WARNING: ' + rugWarnings.join(', ')
+        : '';
+
+      // Social links for display
+      const socialLinks = [];
+      if (data.twitter) {
+        socialLinks.push('Twitter: ' + data.twitter);
+      }
+      if (data.telegram) {
+        socialLinks.push('Telegram: ' + data.telegram);
+      }
+      if (data.website) {
+        socialLinks.push('Website: ' + data.website);
+      }
+      const socialText = socialLinks.length > 0
+        ? '\nSOCIALS\n' + socialLinks.join('\n') + '\n'
         : '';
 
       // AI analysis
@@ -272,7 +285,7 @@ class PumpScanner {
       }
 
       const tradeApprovalText = autoTradeEligible
-        ? '\n\n✅ ELIGIBLE FOR AUTO-TRADE (ALPHA dev + 1+ SOL)\nWill execute if AUTO_TRADE_ENABLED=true'
+        ? '\n\n✅ ELIGIBLE FOR AUTO-TRADE (ALPHA dev + 0.1+ SOL)\nWill execute if AUTO_TRADE_ENABLED=true'
         : '\n\n⚠️  MANUAL APPROVAL REQUIRED\nReply: BUY ' + address.slice(0, 8) + ' or SKIP ' + address.slice(0, 8);
 
       const message =
@@ -285,21 +298,21 @@ class PumpScanner {
         'Initial Buy: ' + solAmount.toFixed(6) + ' SOL\n' +
         'Market Cap: ' + marketCapSol.toFixed(2) + ' SOL\n' +
         'Conviction: ' + conviction + warningText + '\n\n' +
+        socialText +
         'DEV REPUTATION\n' +
         devLabel + '\n' +
         devStats + '\n\n' +
         (aiAnalysis ? 'AI ANALYSIS\n' + aiAnalysis + '\n\n' : '') +
         'Pump.fun: https://pump.fun/' + address +
         tradeApprovalText + '\n\n' +
-        'TrenchPulse Early Scanner\n' +
-        'DYOR - Manual review recommended';
+        'TrenchPulse Scanner';
 
       console.log(
         'Pump.fun signal: ' + name +
         ' | Buy: ' + solAmount.toFixed(6) + ' SOL' +
         ' | MCap: ' + marketCapSol.toFixed(2) + ' SOL' +
+        ' | Socials: ' + this.countSocials(data) +
         ' | Dev: ' + devReputation +
-        ' | Conviction: ' + conviction +
         (autoTradeEligible ? ' | AUTO-ELIGIBLE' : ' | MANUAL')
       );
 
