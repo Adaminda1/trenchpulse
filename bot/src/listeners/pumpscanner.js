@@ -10,20 +10,14 @@ const {
 const PUMP_WS = 'wss://pumpportal.fun/api/data';
 
 const FILTERS = {
-  // ALERT THRESHOLD — high conviction only
-  MIN_SOL_AMOUNT_ALERT: 0.1,      // Real money backing (0.05 was too loose)
-  MIN_MARKET_CAP_SOL_ALERT: 10,   // Meaningful liquidity
-
-  // AUTO-TRADE THRESHOLD
+  MIN_SOL_AMOUNT_ALERT: 0.1,
+  MIN_MARKET_CAP_SOL_ALERT: 10,
   MIN_SOL_AMOUNT_AUTO: 1,
   MIN_MARKET_CAP_SOL_AUTO: 10,
-
-  // QUALITY FILTERS
   REQUIRE_IMAGE: false,
-  REQUIRE_SOCIALS: true,          // NEW: Must have Twitter OR Telegram
+  REQUIRE_SOCIALS: true,
   MIN_NAME_LENGTH: 3,
   MAX_NAME_LENGTH: 20,
-  
   BLOCK_KEYWORDS: [
     'test', 'scam', 'fake', 'rug', 'honey',
     'porn', 'xxx'
@@ -57,17 +51,14 @@ class PumpScanner {
     return true;
   }
 
-  // Smart pattern-based rug detection
   isObviousRug(name, symbol) {
     if (!name) return false;
     const lower = name.toLowerCase();
 
-    // PATTERN 1: Pure gibberish (all caps/random, very short)
     if (name.length <= 4 && /^[A-Z0-9]{1,4}$/.test(name)) {
       return true;
     }
 
-    // PATTERN 2: Generic first names ONLY
     const firstNames = [
       'brad', 'joe', 'john', 'mike', 'dave', 'tom', 'sara', 'bob',
       'alice', 'charlie', 'david', 'emma', 'frank', 'george',
@@ -77,7 +68,6 @@ class PumpScanner {
       return true;
     }
 
-    // PATTERN 3: Isolated animal/food names
     const animals = ['dog', 'cat', 'bird', 'fish', 'ape', 'monkey', 'pig', 'cow', 'sheep'];
     const foods = ['pizza', 'burger', 'taco', 'coffee', 'beer', 'wine'];
 
@@ -94,11 +84,8 @@ class PumpScanner {
       if (lower === food) return true;
     }
 
-    // PATTERN 4: Pure numbers or repeated characters
     if (/^[0-9]+$/.test(name)) return true;
     if (/^(.)\1{2,}$/.test(name)) return true;
-
-    // PATTERN 5: Suspicious repetition
     if (name.length > 4 && /(.{2,})\1{2,}/.test(lower)) return true;
 
     return false;
@@ -111,14 +98,12 @@ class PumpScanner {
     return true;
   }
 
-  // Check if token has socials (Twitter and/or Telegram)
   hasSocials(data) {
     const hasTwitter = !!data.twitter && data.twitter.trim().length > 0;
     const hasTelegram = !!data.telegram && data.telegram.trim().length > 0;
     return hasTwitter || hasTelegram;
   }
 
-  // Count how many socials (for quality scoring)
   countSocials(data) {
     let count = 0;
     if (data.twitter && data.twitter.trim().length > 0) count++;
@@ -127,7 +112,6 @@ class PumpScanner {
     return count;
   }
 
-  // Detect early rug warning signs
   detectRugWarnings(data) {
     const warnings = [];
     
@@ -140,7 +124,6 @@ class PumpScanner {
       warnings.push('no-image');
     }
 
-    // Social count impacts risk assessment
     const socialCount = this.countSocials(data);
     if (socialCount === 1) {
       warnings.push('single-social');
@@ -178,8 +161,6 @@ class PumpScanner {
       const solAmount = parseFloat(data.solAmount || 0);
       const marketCapSol = parseFloat(data.marketCapSol || 0);
 
-      // TIER 1: HARD FILTERS
-      
       if (this.containsBlockedKeyword(name) ||
           this.containsBlockedKeyword(symbol)) {
         console.log('PumpScanner rejected: blocked keyword — ' + name);
@@ -196,15 +177,11 @@ class PumpScanner {
         return;
       }
 
-      // TIER 2: SOCIALS REQUIREMENT (NEW — filters 90% of rugs)
-      
       if (!this.hasSocials(data)) {
         console.log('PumpScanner rejected: no socials (Twitter/Telegram required) — ' + name);
         return;
       }
 
-      // TIER 3: DEV REPUTATION
-      
       const devRecord = getDevRecord(devWallet);
       const devReputation = devRecord?.reputation || 'NEW';
 
@@ -213,8 +190,6 @@ class PumpScanner {
         return;
       }
 
-      // TIER 4: CONVICTION LEVEL (stricter thresholds)
-      
       if (solAmount < FILTERS.MIN_SOL_AMOUNT_ALERT) {
         console.log('PumpScanner rejected: low conviction — ' + name +
           ' | Buy: ' + solAmount.toFixed(6) + ' SOL (need 0.1+)');
@@ -227,7 +202,6 @@ class PumpScanner {
         return;
       }
 
-      // Register for outcome tracking
       if (devWallet !== 'unknown') {
         registerToken(devWallet, address, name);
       }
@@ -239,7 +213,6 @@ class PumpScanner {
           ' | Rugs: ' + devRecord.rugCount
         : 'First time seen';
 
-      // Determine conviction level (all high conviction now due to filters)
       let conviction = 'HIGH';
       let autoTradeEligible = false;
 
@@ -247,13 +220,11 @@ class PumpScanner {
         autoTradeEligible = (devReputation === 'ALPHA');
       }
 
-      // Detect rug warning signs
       const rugWarnings = this.detectRugWarnings(data);
       const warningText = rugWarnings.length > 0
         ? '\n⚠️  WARNING: ' + rugWarnings.join(', ')
         : '';
 
-      // Social links for display
       const socialLinks = [];
       if (data.twitter) {
         socialLinks.push('Twitter: ' + data.twitter);
@@ -268,7 +239,6 @@ class PumpScanner {
         ? '\nSOCIALS\n' + socialLinks.join('\n') + '\n'
         : '';
 
-      // AI analysis
       let aiAnalysis = null;
       try {
         aiAnalysis = await analyzeToken({
@@ -318,7 +288,6 @@ class PumpScanner {
 
       await sendTelegramAlert(message);
 
-      // Pass to scanner for deep analysis
       if (this.scanner && marketCapSol >= FILTERS.MIN_MARKET_CAP_SOL_ALERT) {
         setTimeout(async () => {
           await this.scanner.analyzeAndAlert({
@@ -405,9 +374,7 @@ class PumpScanner {
           if (parsed.txType === 'create') {
             await this.handleNewToken(parsed);
           }
-        } catch (error) {
-          // Ignore parse errors silently
-        }
+        } catch (error) {}
       });
 
       this.ws.on('pong', () => {
